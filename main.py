@@ -20,7 +20,7 @@ logger = logging.getLogger("fedsentinel")
 app = FastAPI(
     title="FedSentinel SecOps Engine",
     description="Evidence-driven security control plane for federated learning. Don't trust the update. Verify it.",
-    version="1.0.0",
+    version="2.4.0",
 )
 
 # Enable CORS for frontend clients (Vite dev server on localhost:3000, 3001, 3002, etc.)
@@ -38,11 +38,29 @@ app.add_middleware(
 class HospitalClient(BaseModel):
     client_id: str
     name: str
-    status: str  # TRUSTED | REVIEW | QUARANTINED | BLOCKED
-    trust_score: int
-    samples_count: int
-    historical_anomalies: int
-    last_active_round: int
+    status: str = "TRUSTED"  # TRUSTED | REVIEW | QUARANTINED | BLOCKED
+    trust_score: int = 95
+    samples_count: int = 1000
+    historical_anomalies: int = 0
+    last_active_round: int = 24
+    enclave_type: Optional[str] = "Intel SGX Enclave"
+    department: Optional[str] = "General Clinical Research"
+
+
+class CreateClientRequest(BaseModel):
+    client_id: str
+    name: str
+    status: Optional[str] = "TRUSTED"
+    trust_score: Optional[int] = 95
+    samples_count: Optional[int] = 1000
+    enclave_type: Optional[str] = "Intel SGX Enclave"
+    department: Optional[str] = "General Clinical Research"
+
+
+class ClientActionRequest(BaseModel):
+    action: str  # REINSTATE | QUARANTINE | BLOCK | ADJUST_TRUST
+    trust_score: Optional[int] = None
+    reason: Optional[str] = None
 
 
 class FederationRound(BaseModel):
@@ -85,6 +103,14 @@ class Incident(BaseModel):
     timestamp: str
 
 
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+    role: Optional[str] = "SECOPS_ADMIN"
+    hospital_affiliation: Optional[str] = "Federal Health Consortium"
+
+
 # --- In-Memory SecOps Telemetry State ---
 
 INITIAL_CLIENTS: List[HospitalClient] = [
@@ -96,6 +122,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=1420,
         historical_anomalies=0,
         last_active_round=24,
+        enclave_type="Intel SGX Enclave",
+        department="Oncology & Rare Diseases",
     ),
     HospitalClient(
         client_id="H2",
@@ -105,6 +133,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=980,
         historical_anomalies=0,
         last_active_round=24,
+        enclave_type="AMD SEV-SNP Confidential VM",
+        department="Neurology & Brain Mapping",
     ),
     HospitalClient(
         client_id="H3",
@@ -114,6 +144,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=500,
         historical_anomalies=2,
         last_active_round=24,
+        enclave_type="AWS Nitro Enclaves",
+        department="Pediatric Genetics",
     ),
     HospitalClient(
         client_id="H4",
@@ -123,6 +155,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=650,
         historical_anomalies=1,
         last_active_round=23,
+        enclave_type="Intel SGX Enclave",
+        department="Cardiovascular Imaging",
     ),
     HospitalClient(
         client_id="H5",
@@ -132,6 +166,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=320,
         historical_anomalies=4,
         last_active_round=21,
+        enclave_type="Confidential Kubernetes Node",
+        department="Immunology",
     ),
     HospitalClient(
         client_id="H6",
@@ -141,6 +177,8 @@ INITIAL_CLIENTS: List[HospitalClient] = [
         samples_count=810,
         historical_anomalies=0,
         last_active_round=24,
+        enclave_type="Apple Secure Enclave Server",
+        department="Pulmonology",
     ),
 ]
 
@@ -476,7 +514,7 @@ async def health():
     return {
         "status": "ok",
         "service": "FedSentinel Defense Control Plane",
-        "version": "1.0.0",
+        "version": "2.4.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -484,6 +522,152 @@ async def health():
 @app.get("/api/clients")
 async def get_clients():
     return [c.model_dump() for c in clients_db]
+
+
+@app.post("/api/clients")
+async def create_client(req: CreateClientRequest):
+    global clients_db, TRUST_PROFILES
+
+    # Normalize client ID
+    cid = req.client_id.strip().upper()
+    if not cid:
+        raise HTTPException(status_code=400, detail="Client ID cannot be blank")
+
+    # Check if already exists
+    existing = next((c for c in clients_db if c.client_id.upper() == cid), None)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Hospital node with ID '{cid}' is already registered.")
+
+    new_client = HospitalClient(
+        client_id=cid,
+        name=req.name.strip(),
+        status=req.status or "TRUSTED",
+        trust_score=req.trust_score if req.trust_score is not None else 95,
+        samples_count=req.samples_count if req.samples_count is not None else 1000,
+        historical_anomalies=0,
+        last_active_round=rounds_db[0].round_id if rounds_db else 24,
+        enclave_type=req.enclave_type or "Intel SGX Enclave",
+        department=req.department or "Clinical Department",
+    )
+
+    clients_db.append(new_client)
+
+    # Initialize client trust profile
+    TRUST_PROFILES[cid] = {
+        "client_id": cid,
+        "current_trust_score": new_client.trust_score,
+        "status": new_client.status,
+        "incident_count": 0,
+        "trust_history": [
+            {
+                "round_id": new_client.last_active_round,
+                "score": new_client.trust_score,
+                "delta": 0,
+                "reason": f"Node registered into federated enclave consortium ({new_client.enclave_type})",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        "penalties": [],
+        "factors": {
+            "anomaly_resistance": 0.95,
+            "influence_safety": 0.94,
+            "counterfactual_stability": 0.96,
+            "consistency": 0.98,
+        },
+    }
+
+    # Broadcast event
+    await ws_manager.broadcast(
+        event_type="CLIENT_REGISTERED",
+        round_id=new_client.last_active_round,
+        client_id=cid,
+        payload={
+            "name": new_client.name,
+            "trust_score": new_client.trust_score,
+            "enclave_type": new_client.enclave_type,
+            "department": new_client.department,
+        },
+    )
+
+    return {"client": new_client.model_dump(), **new_client.model_dump()}
+
+
+@app.post("/api/clients/{client_id}/action")
+async def override_client_status(client_id: str, req: ClientActionRequest):
+    global clients_db, TRUST_PROFILES
+
+    cid = client_id.strip().upper()
+    client = next((c for c in clients_db if c.client_id.upper() == cid), None)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client '{cid}' not found.")
+
+    score_before = client.trust_score
+    status_before = client.status
+
+    if req.action == "REINSTATE":
+        client.status = "TRUSTED"
+        client.trust_score = req.trust_score if req.trust_score is not None else max(80, client.trust_score)
+        reason = req.reason or "Administrator verified enclave integrity & reinstated node"
+    elif req.action == "QUARANTINE":
+        client.status = "QUARANTINED"
+        client.trust_score = req.trust_score if req.trust_score is not None else 35
+        client.historical_anomalies += 1
+        reason = req.reason or "SecOps manual quarantine enforcement"
+    elif req.action == "BLOCK":
+        client.status = "BLOCKED"
+        client.trust_score = req.trust_score if req.trust_score is not None else 10
+        reason = req.reason or "Permanent block applied due to unverified gradient signature"
+    elif req.action == "ADJUST_TRUST":
+        if req.trust_score is not None:
+            client.trust_score = max(0, min(100, req.trust_score))
+        if client.trust_score >= 80:
+            client.status = "TRUSTED"
+        elif client.trust_score >= 50:
+            client.status = "REVIEW"
+        else:
+            client.status = "QUARANTINED"
+        reason = req.reason or f"Trust score adjusted to {client.trust_score}% by SecOps Lead"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {req.action}")
+
+    delta = client.trust_score - score_before
+
+    # Update trust history
+    if cid not in TRUST_PROFILES:
+        TRUST_PROFILES[cid] = {
+            "client_id": cid,
+            "current_trust_score": client.trust_score,
+            "status": client.status,
+            "incident_count": 0,
+            "trust_history": [],
+            "penalties": [],
+            "factors": {"anomaly_resistance": 0.9, "influence_safety": 0.9, "counterfactual_stability": 0.9, "consistency": 0.9},
+        }
+
+    TRUST_PROFILES[cid]["current_trust_score"] = client.trust_score
+    TRUST_PROFILES[cid]["status"] = client.status
+    TRUST_PROFILES[cid]["trust_history"].insert(0, {
+        "round_id": rounds_db[0].round_id if rounds_db else 24,
+        "score": client.trust_score,
+        "delta": delta,
+        "reason": reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Broadcast event
+    await ws_manager.broadcast(
+        event_type="CLIENT_STATUS_UPDATED",
+        round_id=rounds_db[0].round_id if rounds_db else 24,
+        client_id=cid,
+        payload={
+            "action": req.action,
+            "status": client.status,
+            "trust_score": client.trust_score,
+            "reason": reason,
+        },
+    )
+
+    return {"client": client.model_dump(), **client.model_dump()}
 
 
 @app.get("/api/rounds")
@@ -751,6 +935,38 @@ async def start_simulation():
     return {
         "status": "SIMULATION_COMPLETE",
         "incident": simulated_incident.model_dump(),
+    }
+
+
+# --- Authentication Endpoint ---
+
+@app.post("/api/auth/login")
+async def login(req: AuthRequest):
+    return {
+        "user": {
+            "id": "usr_" + hashlib.md5(req.email.encode()).hexdigest()[:8],
+            "name": req.name or req.email.split("@")[0].replace(".", " ").title(),
+            "email": req.email,
+            "role": req.role or "SECOPS_ADMIN",
+            "hospitalAffiliation": req.hospital_affiliation or "Federal Health Consortium",
+            "clearanceLevel": "TOP_SECRET_FED_LEVEL_4",
+        },
+        "token": "jwt_fedsentinel_secops_" + hashlib.sha256(req.email.encode()).hexdigest()[:24],
+    }
+
+
+@app.post("/api/auth/register")
+async def register(req: AuthRequest):
+    return {
+        "user": {
+            "id": "usr_" + hashlib.md5(req.email.encode()).hexdigest()[:8],
+            "name": req.name or req.email.split("@")[0].replace(".", " ").title(),
+            "email": req.email,
+            "role": req.role or "SECOPS_ADMIN",
+            "hospitalAffiliation": req.hospital_affiliation or "Hospital Enclave Network",
+            "clearanceLevel": "LEVEL_3_ANALYST",
+        },
+        "token": "jwt_fedsentinel_secops_" + hashlib.sha256(req.email.encode()).hexdigest()[:24],
     }
 
 

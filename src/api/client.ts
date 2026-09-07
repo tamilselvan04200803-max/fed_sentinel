@@ -5,6 +5,8 @@ import {
   Incident,
   ClientTrustInfo,
   SimulationResponse,
+  CreateClientRequest,
+  ClientActionRequest,
 } from '../types';
 
 export class ApiError extends Error {
@@ -210,5 +212,41 @@ export const apiClient = {
       return { status: 'SIMULATION_COMPLETE', incident: res };
     }
     return res as SimulationResponse;
+  },
+
+  // POST http://127.0.0.1:8000/api/clients
+  async createClient(req: CreateClientRequest): Promise<HospitalClient> {
+    const res = await request<any>('/api/clients', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+    if (res && res.client) return res.client;
+    return res as HospitalClient;
+  },
+
+  // POST http://127.0.0.1:8000/api/clients/{client_id}/action
+  async overrideClientStatus(clientId: string, req: ClientActionRequest): Promise<HospitalClient> {
+    const res = await request<any>(`/api/clients/${encodeURIComponent(clientId)}/action`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+    if (res && res.client) return res.client;
+    return res as HospitalClient;
+  },
+
+  // POST http://127.0.0.1:8000/api/auth/login
+  async login(email: string, password: string, role?: string, name?: string): Promise<any> {
+    return request<any>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, role, name }),
+    });
+  },
+
+  // POST http://127.0.0.1:8000/api/auth/register
+  async register(data: { name: string; email: string; password: string; role?: string; hospital_affiliation?: string }): Promise<any> {
+    return request<any>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
   },
 };

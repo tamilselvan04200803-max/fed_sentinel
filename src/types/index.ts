@@ -165,3 +165,31 @@ export type NavigationPage =
   | 'investigation';
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected' | 'error';
+
+export type UserRole = 'SECOPS_ADMIN' | 'FORENSIC_ANALYST' | 'CLINICAL_AUDITOR';
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  hospitalAffiliation?: string;
+  clearanceLevel?: string;
+  avatarUrl?: string;
+}
+
+export interface CreateClientRequest {
+  client_id: string;
+  name: string;
+  status?: ClientStatus;
+  trust_score?: number;
+  samples_count?: number;
+  enclave_type?: string;
+  department?: string;
+}
+
+export interface ClientActionRequest {
+  action: 'REINSTATE' | 'QUARANTINE' | 'BLOCK' | 'ADJUST_TRUST';
+  trust_score?: number;
+  reason?: string;
+}

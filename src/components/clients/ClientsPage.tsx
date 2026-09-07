@@ -10,6 +10,11 @@ import {
   Shield,
   Layers,
   ChevronRight,
+  PlusCircle,
+  MoreVertical,
+  RotateCcw,
+  ShieldAlert,
+  ShieldX,
 } from 'lucide-react';
 import { useFedSentinel } from '../../context/FedSentinelContext';
 import { HospitalClient } from '../../types';
@@ -18,12 +23,20 @@ type SortField = 'trust_score' | 'status' | 'historical_anomalies' | 'last_activ
 type SortOrder = 'asc' | 'desc';
 
 export const ClientsPage: React.FC = () => {
-  const { clients, setSelectedClientId, isLoading } = useFedSentinel();
+  const {
+    clients,
+    setSelectedClientId,
+    isLoading,
+    setAddClientModalOpen,
+    overrideClientStatus,
+    currentUser,
+  } = useFedSentinel();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [sortField, setSortField] = useState<SortField>('trust_score');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [actionMenuClientId, setActionMenuClientId] = useState<string | null>(null);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -39,7 +52,9 @@ export const ClientsPage: React.FC = () => {
       .filter((c) => {
         const matchesSearch =
           c.client_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.name.toLowerCase().includes(searchQuery.toLowerCase());
+          c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (c.department && c.department.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (c.enclave_type && c.enclave_type.toLowerCase().includes(searchQuery.toLowerCase()));
         const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
         return matchesSearch && matchesStatus;
       })
@@ -97,6 +112,12 @@ export const ClientsPage: React.FC = () => {
     }
   };
 
+  const handleOverride = async (e: React.MouseEvent, clientId: string, action: 'REINSTATE' | 'QUARANTINE' | 'BLOCK') => {
+    e.stopPropagation();
+    setActionMenuClientId(null);
+    await overrideClientStatus(clientId, action);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-5">
       {/* Header & Description */}
@@ -104,37 +125,42 @@ export const ClientsPage: React.FC = () => {
         <div>
           <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Building2 className="w-5 h-5 text-slate-700" />
-            Hospital Clients Registry
+            Hospital Clients Registry &amp; Enclave Nodes
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Distributed clinical enclave nodes participating in zero-trust federated model training.
           </p>
         </div>
 
-        {/* Status Counts Pill */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold font-mono-code">
-            {clients.filter((c) => c.status === 'TRUSTED').length} Trusted
-          </span>
-          <span className="px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 font-semibold font-mono-code">
-            {clients.filter((c) => c.status === 'REVIEW').length} Review
-          </span>
-          <span className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold font-mono-code">
-            {clients.filter((c) => c.status === 'QUARANTINED').length} Quarantined
-          </span>
-          <span className="px-2 py-1 rounded bg-red-950 text-rose-200 border border-rose-900 font-semibold font-mono-code">
-            {clients.filter((c) => c.status === 'BLOCKED').length} Blocked
-          </span>
+        {/* Action Button & Status Counts Pill */}
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs">
+            <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold font-mono-code text-[11px]">
+              {clients.filter((c) => c.status === 'TRUSTED').length} Trusted
+            </span>
+            <span className="px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold font-mono-code text-[11px]">
+              {clients.filter((c) => c.status === 'QUARANTINED').length} Quarantined
+            </span>
+          </div>
+
+          <button
+            onClick={() => setAddClientModalOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-xs"
+            type="button"
+          >
+            <PlusCircle className="w-4 h-4 text-emerald-400" />
+            <span>Register Hospital Node</span>
+          </button>
         </div>
       </div>
 
       {/* Filter and Search Controls */}
-      <div className="p-3 bg-white rounded-lg border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative w-full sm:w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Search by Client ID (e.g. H3) or Hospital Name..."
+            placeholder="Search by Node ID (e.g. H3), hospital, or department..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 font-sans"
@@ -144,7 +170,7 @@ export const ClientsPage: React.FC = () => {
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <span className="font-medium">Status:</span>
+            <span className="font-medium">Filter:</span>
           </div>
 
           <div className="flex items-center gap-1">
@@ -177,11 +203,11 @@ export const ClientsPage: React.FC = () => {
                   className="px-4 py-3 cursor-pointer hover:text-slate-900"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Client ID</span>
+                    <span>Node ID</span>
                     <ArrowUpDown className="w-3 h-3 text-slate-400" />
                   </div>
                 </th>
-                <th className="px-4 py-3">Hospital Name</th>
+                <th className="px-4 py-3">Hospital / Enclave Details</th>
                 <th
                   onClick={() => handleSort('status')}
                   className="px-4 py-3 cursor-pointer hover:text-slate-900"
@@ -205,7 +231,7 @@ export const ClientsPage: React.FC = () => {
                   className="px-4 py-3 cursor-pointer hover:text-slate-900"
                 >
                   <div className="flex items-center gap-1">
-                    <span>Samples</span>
+                    <span>Dataset Samples</span>
                     <ArrowUpDown className="w-3 h-3 text-slate-400" />
                   </div>
                 </th>
@@ -227,7 +253,7 @@ export const ClientsPage: React.FC = () => {
                     <ArrowUpDown className="w-3 h-3 text-slate-400" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-right">Action</th>
+                <th className="px-4 py-3 text-right">SecOps Controls</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -242,8 +268,13 @@ export const ClientsPage: React.FC = () => {
                       <td className="px-4 py-3 font-mono-code font-bold text-slate-900">
                         {client.client_id}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">
-                        {client.name}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-slate-900">{client.name}</span>
+                          <span className="text-[10px] text-slate-500 font-mono-code">
+                            {client.enclave_type || 'Intel SGX Enclave'} &bull; {client.department || 'Clinical Research'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {getStatusBadge(client.status)}
@@ -287,17 +318,41 @@ export const ClientsPage: React.FC = () => {
                         Round #{client.last_active_round}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedClientId(client.client_id);
-                          }}
-                          className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 font-semibold group-hover:underline text-[11px]"
-                          type="button"
-                        >
-                          <span>Trust History</span>
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-900" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {client.status === 'QUARANTINED' || client.status === 'BLOCKED' ? (
+                            <button
+                              onClick={(e) => handleOverride(e, client.client_id, 'REINSTATE')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors shadow-2xs"
+                              title="Reinstate node to Trusted status"
+                              type="button"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Reinstate</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => handleOverride(e, client.client_id, 'QUARANTINE')}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors shadow-2xs"
+                              title="Force quarantine on this node"
+                              type="button"
+                            >
+                              <ShieldAlert className="w-3 h-3" />
+                              <span>Quarantine</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedClientId(client.client_id);
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+                            title="View full trust ledger & history"
+                            type="button"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -11,6 +11,9 @@ import { InvestigationPage } from './components/investigation/InvestigationPage'
 import { StartRoundModal } from './components/common/StartRoundModal';
 import { SimulationModal } from './components/common/SimulationModal';
 import { ClientDetailModal } from './components/common/ClientDetailModal';
+import { AuthModal } from './components/auth/AuthModal';
+import { AddClientModal } from './components/clients/AddClientModal';
+import { ToastContainer } from './components/common/ToastContainer';
 
 const AppContent: React.FC = () => {
   const { activeTab } = useFedSentinel();
@@ -35,10 +38,13 @@ const AppContent: React.FC = () => {
         {activeTab === 'investigation' && <InvestigationPage />}
       </main>
 
-      {/* Global Context Modals */}
+      {/* Global Context Modals & Notifications */}
       <StartRoundModal />
       <SimulationModal />
       <ClientDetailModal />
+      <AuthModal />
+      <AddClientModal />
+      <ToastContainer />
 
       {/* Footer Audit Bar */}
       <footer className="border-t border-slate-200 bg-white py-3 px-4 sm:px-8 text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
