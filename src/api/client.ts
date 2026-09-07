@@ -5,6 +5,7 @@ import {
   Incident,
   ClientTrustInfo,
   SimulationResponse,
+  SimulationRequest,
   CreateClientRequest,
   ClientActionRequest,
 } from '../types';
@@ -202,16 +203,29 @@ export const apiClient = {
   },
 
   // POST http://127.0.0.1:8000/api/simulation/start
-  async startSimulation(): Promise<SimulationResponse> {
+  async startSimulation(params?: SimulationRequest): Promise<SimulationResponse> {
     const res = await request<any>('/api/simulation/start', {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(params || {}),
     });
     if (res && res.incident) return res;
     if (res && res.incident_id) {
-      return { status: 'SIMULATION_COMPLETE', incident: res };
+      return { status: 'SIMULATION_COMPLETE', incident: res, target_client_id: res.client_id };
     }
     return res as SimulationResponse;
+  },
+
+  // POST http://127.0.0.1:8000/api/defense/toggle
+  async toggleDefense(enabled: boolean, strategy?: string): Promise<any> {
+    return request<any>('/api/defense/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ enabled, strategy: strategy || 'trust_weighted' }),
+    });
+  },
+
+  // GET http://127.0.0.1:8000/api/model/status
+  async getModelStatus(): Promise<any> {
+    return request<any>('/api/model/status');
   },
 
   // POST http://127.0.0.1:8000/api/clients

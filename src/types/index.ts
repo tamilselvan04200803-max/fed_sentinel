@@ -149,9 +149,18 @@ export interface ClientTrustInfo {
   };
 }
 
+export interface SimulationRequest {
+  target_client_id?: string;
+  target_clients?: string[];
+  attack_type?: 'BACKDOOR' | 'MODEL_POISONING' | 'LABEL_POISONING' | 'ABNORMAL_MAGNITUDE' | string;
+  intensity?: number;
+  defense_enabled?: boolean;
+}
+
 export interface SimulationResponse {
   status: string; // e.g. "SIMULATION_COMPLETE"
   incident: Incident;
+  target_client_id?: string;
 }
 
 export interface FedSentinelEvent {
@@ -167,7 +176,11 @@ export type NavigationPage =
   | 'clients'
   | 'rounds'
   | 'incidents'
-  | 'investigation';
+  | 'investigation'
+  | 'threats'
+  | 'model'
+  | 'audit'
+  | 'settings';
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected' | 'error';
 

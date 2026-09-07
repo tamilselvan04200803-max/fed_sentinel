@@ -83,6 +83,21 @@ class StartRoundRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class SimulationStartRequest(BaseModel):
+    target_client_id: Optional[str] = "H3"
+    target_clients: Optional[List[str]] = None
+    attack_type: Optional[str] = "BACKDOOR"
+    intensity: Optional[float] = 0.75
+    defense_enabled: Optional[bool] = True
+    scenario: Optional[str] = "medical_imaging_poisoning"
+
+
+class DefenseToggleRequest(BaseModel):
+    enabled: bool = True
+    strategy: Optional[str] = "trust_weighted"
+
+
+
 class BlastRadius(BaseModel):
     baseline_asr: float = 0.0
     post_update_asr: float = 86.0
@@ -892,84 +907,112 @@ async def get_client_trust(client_id: str):
 
 
 @app.post("/api/simulation/start")
-async def start_simulation():
+@app.post("/api/simulation/attack")
+async def start_simulation(req: Optional[SimulationStartRequest] = None):
     global simulation_counter, incidents_db, clients_db
+
+    # Parse target client ID dynamically from request or default to H3
+    target_id = "H3"
+    attack_type = "BACKDOOR"
+    intensity = 0.75
+    defense_enabled = True
+
+    if req:
+        if req.target_client_id:
+            target_id = req.target_client_id.strip().upper()
+        if req.attack_type:
+            attack_type = req.attack_type.upper()
+        if req.intensity is not None:
+            intensity = req.intensity
+        if req.defense_enabled is not None:
+            defense_enabled = req.defense_enabled
+
+    # Ensure target node exists or fallback
+    target_client = next((c for c in clients_db if c.client_id.upper() == target_id), None)
+    if not target_client:
+        target_client = clients_db[0] if clients_db else HospitalClient(client_id="H3", name="Hospital 3")
+        target_id = target_client.client_id
 
     incident_id = f"FS-{simulation_counter:03d}"
     simulation_counter += 1
 
     latest_round = rounds_db[0].round_id if rounds_db else 24
-    attack_hash = hashlib.sha256(f"backdoor_payload_{incident_id}_{latest_round}".encode()).hexdigest()
+    attack_hash = hashlib.sha256(f"attack_payload_{target_id}_{incident_id}_{latest_round}".encode()).hexdigest()
+
+    trust_before = target_client.trust_score
+    # If defense enabled, quarantine and drop trust to 35; if defense disabled, trust remains higher
+    trust_after = 35 if defense_enabled else max(20, trust_before - 15)
+    action_taken = "QUARANTINED" if defense_enabled else "AGGREGATED_UNFILTERED"
 
     simulated_incident = Incident(
         incident_id=incident_id,
-        client_id="H3",
+        client_id=target_id,
         round_id=latest_round,
         update_hash=attack_hash,
         integrity_status="PASS",
-        threat_hypothesis="BACKDOOR",
+        threat_hypothesis=attack_type,
         confidence="HIGH",
-        action_taken="QUARANTINED",
-        trust_before=85,
-        trust_after=35,
+        action_taken=action_taken,
+        trust_before=trust_before,
+        trust_after=trust_after,
         blast_radius=BlastRadius(
             baseline_asr=0.0,
-            post_update_asr=89.4,
+            post_update_asr=89.4 if attack_type == "BACKDOOR" else 45.0,
             baseline_accuracy=94.5,
-            post_update_accuracy=91.2,
-            impacted_target_class="Class 7 (Malignant Glioblastoma)",
-            target_class_accuracy_drop=44.1,
+            post_update_accuracy=91.2 if defense_enabled else 74.5,
+            impacted_target_class="Class 7 (Malignant Glioblastoma)" if attack_type == "BACKDOOR" else "Class 1 (Pathological Infiltrates)",
+            target_class_accuracy_drop=44.1 if not defense_enabled else 3.2,
         ),
         evidence_summary={
             "layer0_local_validation": {
-                "status": "PASS",
+                "status": "PASS" if attack_type != "EXTREME_MAGNITUDE" else "WARN",
                 "checks_passed": 12,
                 "total_checks": 12,
                 "format_valid": True,
                 "nan_inf_check": "CLEAN",
-                "details": "Syntactic IEEE 754 float validation passed. Tensor signature verified.",
+                "details": f"Update from {target_id} passed tensor dimension checks and IEEE 754 validity.",
             },
             "layer1_fingerprint": {
                 "hash": attack_hash,
                 "dimensions": 24576,
-                "norm": 4.12,
-                "cosine_distance_to_median": 0.72,
+                "norm": round(3.84 * (1.0 + intensity), 2),
+                "cosine_distance_to_median": round(0.68 + (intensity * 0.25), 2),
                 "fingerprint_sample": [0.12, -0.45, 0.88, -0.03, 0.65],
             },
             "layer2_anomaly": {
-                "anomaly_score": 0.92,
+                "anomaly_score": round(min(0.98, 0.70 + (intensity * 0.25)), 2),
                 "threshold": 0.45,
                 "flagged_dimensions": ["conv5_3.weight", "dense_classifier.bias"],
                 "method": "Coordinate-wise Median Perturbation Analysis",
-                "spatial_divergence": 4.82,
+                "spatial_divergence": round(4.82 * intensity, 2),
             },
             "layer3_influence": {
-                "influence_score": 0.95,
-                "counterfactual_risk": 0.89,
-                "test_loss_delta": 0.048,
+                "influence_score": round(0.85 + (intensity * 0.12), 2),
+                "counterfactual_risk": round(0.80 + (intensity * 0.15), 2),
+                "test_loss_delta": round(0.048 * intensity, 3),
                 "gradient_projection": 0.82,
             },
             "layer4_counterfactual": {
-                "robustness_score": 0.19,
+                "robustness_score": round(max(0.05, 0.40 - (intensity * 0.3)), 2),
                 "targeted_class_shift": "Class 7 (Malignant Glioblastoma)",
-                "poison_probability": 0.94,
-                "leave_one_out_impact": 0.22,
+                "poison_probability": round(min(0.99, 0.85 + (intensity * 0.12)), 2),
+                "leave_one_out_impact": round(0.18 * intensity, 2),
             },
             "layer5_attribution": {
-                "attributed_client_id": "H3",
+                "attributed_client_id": target_id,
                 "signature_match": True,
                 "historical_pattern_similarity": 0.96,
                 "device_pcr_match": True,
             },
             "trust_engine": {
-                "trust_before": 85,
-                "trust_after": 35,
+                "trust_before": trust_before,
+                "trust_after": trust_after,
                 "penalty_breakdown": {
                     "ANOMALY_DIVERGENCE": -25,
                     "HIGH_INFLUENCE_RISK": -15,
                     "COUNTERFACTUAL_DROP": -10,
                 },
-                "recommended_action": "QUARANTINE_CLIENT",
+                "recommended_action": "QUARANTINE_CLIENT" if defense_enabled else "MONITOR_COHORT",
                 "decay_rate": 0.58,
             },
         },
@@ -978,58 +1021,149 @@ async def start_simulation():
 
     incidents_db.insert(0, simulated_incident)
 
-    # Quarantine H3
-    for c in clients_db:
-        if c.client_id == "H3":
-            c.status = "QUARANTINED"
-            c.trust_score = 35
-            c.historical_anomalies += 1
+    # Update selected target node's state
+    target_client.status = "QUARANTINED" if defense_enabled else "REVIEW"
+    target_client.trust_score = trust_after
+    target_client.historical_anomalies += 1
 
-    # Broadcast simulation telemetry via WebSocket
+    # Update trust profile
+    if target_id in TRUST_PROFILES:
+        TRUST_PROFILES[target_id]["current_trust_score"] = trust_after
+        TRUST_PROFILES[target_id]["status"] = target_client.status
+        TRUST_PROFILES[target_id]["incident_count"] = TRUST_PROFILES[target_id].get("incident_count", 0) + 1
+        TRUST_PROFILES[target_id]["trust_history"].insert(0, {
+            "round_id": latest_round,
+            "score": trust_after,
+            "delta": trust_after - trust_before,
+            "reason": f"Adversarial {attack_type} simulation detected ({incident_id})",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # Broadcast simulation telemetry via WebSocket with dynamic target_id
     await ws_manager.broadcast(
         event_type="SIMULATION_TRIGGERED",
         round_id=latest_round,
-        client_id="H3",
+        client_id=target_id,
         payload={
-            "attack_type": "Targeted Backdoor Watermark",
-            "target_class": "Class 7",
-            "action_taken": "QUARANTINED",
+            "attack_type": attack_type,
+            "target_node": target_id,
+            "hospital_name": target_client.name,
+            "action_taken": action_taken,
             "incident_id": incident_id,
         },
     )
 
-    await ws_manager.broadcast(
-        event_type="CLIENT_QUARANTINED",
-        round_id=latest_round,
-        client_id="H3",
-        payload={
-            "reason": "Backdoor attack pattern detected in conv5_3 layer",
-            "trust_dropped": "-50 points",
-            "incident_id": incident_id,
-        },
-    )
+    if defense_enabled:
+        await ws_manager.broadcast(
+            event_type="CLIENT_QUARANTINED",
+            round_id=latest_round,
+            client_id=target_id,
+            payload={
+                "reason": f"{attack_type} attack pattern detected in client update vector",
+                "trust_dropped": f"{trust_after - trust_before} points",
+                "incident_id": incident_id,
+            },
+        )
 
-    await ws_manager.broadcast(
-        event_type="BYZANTINE_DEFENSE_TRIGGERED",
-        round_id=latest_round,
-        client_id="FEDERATION_GATEWAY",
-        payload={
-            "defense_algorithm": "Multi-Krum + Coordinate Median",
-            "excluded_vectors": ["H3"],
-            "quorum_ratio": "Accepted 3/4 clean gradients",
-        },
-    )
+        await ws_manager.broadcast(
+            event_type="BYZANTINE_DEFENSE_TRIGGERED",
+            round_id=latest_round,
+            client_id="FEDERATION_GATEWAY",
+            payload={
+                "defense_algorithm": "Multi-Krum + Coordinate Median + Zero-Trust Gating",
+                "excluded_vectors": [target_id],
+                "quorum_ratio": f"Accepted {len(clients_db) - 1}/{len(clients_db)} clean gradients",
+            },
+        )
 
     await ws_manager.broadcast(
         event_type="INCIDENT_DETECTED",
         round_id=latest_round,
-        client_id="H3",
-        payload={"incident_id": incident_id, "threat_hypothesis": "BACKDOOR"},
+        client_id=target_id,
+        payload={"incident_id": incident_id, "threat_hypothesis": attack_type},
     )
 
     return {
         "status": "SIMULATION_COMPLETE",
         "incident": simulated_incident.model_dump(),
+        "target_client_id": target_id,
+    }
+
+
+# --- Defense Toggle & Platform Controls ---
+
+DEFENSE_CONFIG = {
+    "enabled": True,
+    "strategy": "trust_weighted",
+    "auto_quarantine": True,
+}
+
+
+@app.post("/api/defense/toggle")
+async def toggle_defense(req: DefenseToggleRequest):
+    global DEFENSE_CONFIG
+    DEFENSE_CONFIG["enabled"] = req.enabled
+    if req.strategy:
+        DEFENSE_CONFIG["strategy"] = req.strategy
+
+    await ws_manager.broadcast(
+        event_type="DEFENSE_TOGGLED",
+        round_id=rounds_db[0].round_id if rounds_db else 24,
+        client_id="SECURITY_GATEWAY",
+        payload={
+            "defense_enabled": DEFENSE_CONFIG["enabled"],
+            "strategy": DEFENSE_CONFIG["strategy"],
+            "status": "ARMED" if req.enabled else "BYPASS",
+        },
+    )
+
+    return {
+        "status": "success",
+        "defense_enabled": DEFENSE_CONFIG["enabled"],
+        "strategy": DEFENSE_CONFIG["strategy"],
+    }
+
+
+@app.get("/api/model/status")
+async def get_model_status():
+    latest_round = rounds_db[0] if rounds_db else None
+    return {
+        "model_version": f"global-model-v{latest_round.round_id if latest_round else 24}",
+        "architecture": "FedSentinel-MedicalCNN (3-stage ConvNet + BatchNorm)",
+        "task": "Pneumonia & Glioblastoma Pathology Classification",
+        "global_accuracy": latest_round.global_accuracy if latest_round else 94.5,
+        "input_resolution": "1x28x28 grayscale / 3x224x224 normalized",
+        "classes": ["Class 0: Normal / Healthy", "Class 1: Pathological Infiltrate", "Class 7: Glioblastoma"],
+        "defense_active": DEFENSE_CONFIG["enabled"],
+        "checksum": hashlib.sha256(f"global_weights_{latest_round.round_id if latest_round else 24}".encode()).hexdigest(),
+    }
+
+
+@app.post("/api/predict")
+async def predict_sample():
+    return {
+        "prediction": "Class 0 (Normal - Healthy Pulmonary Parenchyma)",
+        "confidence": 0.942,
+        "class_probabilities": {
+            "Class 0: Normal": 0.942,
+            "Class 1: Pneumonia / Infiltrates": 0.058,
+        },
+        "model_version": f"global-model-v{rounds_db[0].round_id if rounds_db else 24}",
+        "defense_verification": "VERIFIED_TRUSTED_INFERENCE",
+    }
+
+
+@app.get("/api/metrics")
+async def get_metrics():
+    quarantined = len([c for c in clients_db if c.status == "QUARANTINED"])
+    return {
+        "total_rounds": len(rounds_db),
+        "active_hospitals": len(clients_db),
+        "quarantined_nodes": quarantined,
+        "global_accuracy": rounds_db[0].global_accuracy if rounds_db else 94.5,
+        "defense_mode": "ARMED" if DEFENSE_CONFIG["enabled"] else "BYPASS",
+        "avg_detection_latency_ms": 118.4,
+        "active_ws_connections": len(ws_manager.active_connections),
     }
 
 
@@ -1065,9 +1199,10 @@ async def register(req: AuthRequest):
     }
 
 
-# --- WebSocket Endpoint ---
+# --- WebSocket Endpoints ---
 
 @app.websocket("/ws/events")
+@app.websocket("/ws/live")
 async def websocket_events_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:

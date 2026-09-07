@@ -12,6 +12,7 @@ import {
   CreateClientRequest,
   ClientActionRequest,
   StartRoundRequest,
+  SimulationRequest,
 } from '../types';
 import { apiClient, getApiBaseUrl, setApiBaseUrl, ApiError } from '../api/client';
 import { wsClient } from '../api/websocket';
@@ -80,7 +81,7 @@ interface FedSentinelContextType {
   refreshAllData: () => Promise<void>;
   startRound: (options?: StartRoundRequest | string[]) => Promise<FederationRound>;
   isStartingRound: boolean;
-  startSimulation: () => Promise<Incident>;
+  startSimulation: (params?: SimulationRequest) => Promise<Incident>;
   isSimulating: boolean;
   lastSimulationIncident: Incident | null;
   clearLastSimulationIncident: () => void;
@@ -633,37 +634,42 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   // Start Simulation Action
-  const startSimulation = async (): Promise<Incident> => {
+  const startSimulation = async (params?: SimulationRequest): Promise<Incident> => {
     setIsSimulating(true);
+    const targetId = (params?.target_client_id || 'H3').toUpperCase();
+    const attackType = params?.attack_type || 'BACKDOOR';
+    const intensity = params?.intensity ?? 0.75;
+    const defenseEnabled = params?.defense_enabled ?? true;
+
     try {
       if (isMockModeActive) {
         await new Promise((res) => setTimeout(res, 1200));
         const simIncident: Incident = {
           incident_id: `FS-${Math.floor(100 + Math.random() * 900)}`,
-          client_id: 'H3',
+          client_id: targetId,
           round_id: rounds[0]?.round_id || 24,
           update_hash: '3a7ac6497a7e857a04772b502b19937be8bcfe18479c2a13644a66cbbf605901',
           integrity_status: 'PASS',
-          threat_hypothesis: 'BACKDOOR',
+          threat_hypothesis: attackType,
           confidence: 'HIGH',
-          action_taken: 'QUARANTINED',
+          action_taken: defenseEnabled ? 'QUARANTINED' : 'AGGREGATED_UNFILTERED',
           trust_before: 85,
-          trust_after: 35,
+          trust_after: defenseEnabled ? 35 : 70,
           blast_radius: {
             baseline_asr: 0,
-            post_update_asr: 89,
+            post_update_asr: attackType === 'BACKDOOR' ? 89 : 45,
             baseline_accuracy: 94,
-            post_update_accuracy: 91,
-            impacted_target_class: 'Class 7 (Malignant Glioblastoma)',
-            target_class_accuracy_drop: 44,
+            post_update_accuracy: defenseEnabled ? 91 : 74,
+            impacted_target_class: attackType === 'BACKDOOR' ? 'Class 7 (Malignant Glioblastoma)' : 'Class 1 (Pathological Infiltrates)',
+            target_class_accuracy_drop: defenseEnabled ? 3 : 44,
           },
           evidence_summary: {
-            layer0_local_validation: { status: 'PASS', checks_passed: 12, total_checks: 12, details: 'Valid format.' },
+            layer0_local_validation: { status: 'PASS', checks_passed: 12, total_checks: 12, details: `Valid format for node ${targetId}.` },
             layer1_fingerprint: { norm: 4.12, cosine_distance_to_median: 0.72 },
             layer2_anomaly: { anomaly_score: 0.92, threshold: 0.45, flagged_dimensions: ['conv5_3', 'dense_classifier'] },
             layer3_influence: { influence_score: 0.95, counterfactual_risk: 0.89, test_loss_delta: 0.048 },
             layer4_counterfactual: { robustness_score: 0.19, poison_probability: 0.94 },
-            layer5_attribution: { attributed_client_id: 'H3', signature_match: true },
+            layer5_attribution: { attributed_client_id: targetId, signature_match: true },
             trust_engine: { trust_before: 85, trust_after: 35, recommended_action: 'QUARANTINE_CLIENT' },
           },
           timestamp: new Date().toISOString(),
@@ -676,34 +682,35 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         addEvent({
           event_type: 'SIMULATION_TRIGGERED',
           round_id: simIncident.round_id,
-          client_id: 'H3',
+          client_id: targetId,
           payload: {
-            attack_type: 'Targeted Backdoor Watermark',
-            target_class: 'Class 7',
-            action_taken: 'QUARANTINED',
+            attack_type: attackType,
+            target_node: targetId,
+            action_taken: simIncident.action_taken,
           },
           timestamp: new Date().toISOString(),
         });
 
         setClients((prev) =>
           prev.map((c) =>
-            c.client_id === 'H3'
-              ? { ...c, status: 'QUARANTINED', trust_score: 35, historical_anomalies: c.historical_anomalies + 1 }
+            c.client_id === targetId
+              ? { ...c, status: defenseEnabled ? 'QUARANTINED' : 'REVIEW', trust_score: defenseEnabled ? 35 : 70, historical_anomalies: c.historical_anomalies + 1 }
               : c
           )
         );
 
-        showToast(`Backdoor attack detected and isolated on Node H3! Incident ticket ${simIncident.incident_id} created.`, 'warning', 'Threat Isolated');
+        showToast(`${attackType} attack simulated on Node ${targetId}! Incident ${simIncident.incident_id} created.`, 'warning', 'Threat Isolated');
         return simIncident;
       }
 
-      const res = await apiClient.startSimulation();
+      const res = await apiClient.startSimulation(params);
       setLastSimulationIncident(res.incident);
       if (res.incident?.incident_id) {
         setSelectedIncidentId(res.incident.incident_id);
       }
       await fetchData();
-      showToast(`Adversarial backdoor simulation executed. Node H3 quarantined under ticket ${res.incident.incident_id}.`, 'warning', 'Threat Isolated');
+      const actualTarget = res.target_client_id || res.incident?.client_id || targetId;
+      showToast(`Adversarial ${attackType} simulation executed on Node ${actualTarget}. Quarantined under ticket ${res.incident.incident_id}.`, 'warning', 'Threat Isolated');
       return res.incident;
     } catch (err: any) {
       showToast(err?.message || 'Simulation execution failed.', 'error', 'Simulation Error');
