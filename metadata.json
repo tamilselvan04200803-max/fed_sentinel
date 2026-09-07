@@ -1,0 +1,6 @@
+{
+  "name": "FedSentinel",
+  "description": "Evidence-driven security control plane for federated learning. Don't trust the update. Verify it.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

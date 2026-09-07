@@ -1,0 +1,6 @@
+@echo off
+echo Starting FedSentinel FastAPI Backend on http://127.0.0.1:8000 ...
+start "FedSentinel Backend (FastAPI)" python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+echo Starting FedSentinel Frontend on http://localhost:3002 ...
+start "FedSentinel Frontend (Vite)" cmd.exe /c "npm run dev -- --port 3002"
+echo FedSentinel services launched!
