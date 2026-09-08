@@ -15,6 +15,8 @@ import {
   RotateCcw,
   ShieldAlert,
   ShieldX,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { useFedSentinel } from '../../context/FedSentinelContext';
 import { HospitalClient } from '../../types';
@@ -29,6 +31,8 @@ export const ClientsPage: React.FC = () => {
     isLoading,
     setAddClientModalOpen,
     overrideClientStatus,
+    deleteHospitalClient,
+    resetHospitalClients,
     currentUser,
   } = useFedSentinel();
 
@@ -133,7 +137,7 @@ export const ClientsPage: React.FC = () => {
         </div>
 
         {/* Action Button & Status Counts Pill */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="hidden sm:flex items-center gap-1.5 text-xs">
             <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold font-mono-code text-[11px]">
               {clients.filter((c) => c.status === 'TRUSTED').length} Trusted
@@ -142,6 +146,30 @@ export const ClientsPage: React.FC = () => {
               {clients.filter((c) => c.status === 'QUARANTINED').length} Quarantined
             </span>
           </div>
+
+          <button
+            onClick={() => resetHospitalClients(false)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Reset registry back to original default demo hospitals"
+            type="button"
+          >
+            <RefreshCw className="w-3 h-3 text-slate-500" />
+            <span>Reset Demo Data</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (window.confirm('Clear all hospital nodes so you can register your own custom hospitals?')) {
+                resetHospitalClients(true);
+              }
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 transition-colors shadow-2xs"
+            title="Clear all predefined nodes so you can test with custom hospitals only"
+            type="button"
+          >
+            <Trash2 className="w-3 h-3 text-rose-500" />
+            <span>Clear All</span>
+          </button>
 
           <button
             onClick={() => setAddClientModalOpen(true)}
@@ -340,6 +368,20 @@ export const ClientsPage: React.FC = () => {
                               <span>Quarantine</span>
                             </button>
                           )}
+
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Delete hospital node ${client.client_id} (${client.name})?`)) {
+                                await deleteHospitalClient(client.client_id);
+                              }
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            title="Delete this hospital node"
+                            type="button"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
 
                           <button
                             onClick={(e) => {

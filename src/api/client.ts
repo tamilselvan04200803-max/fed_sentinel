@@ -234,6 +234,20 @@ export const apiClient = {
     return res as HospitalClient;
   },
 
+  // DELETE http://127.0.0.1:8000/api/clients/{client_id}
+  async deleteClient(clientId: string): Promise<{ status: string; client_id: string }> {
+    return request<{ status: string; client_id: string }>(`/api/clients/${encodeURIComponent(clientId)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // POST http://127.0.0.1:8000/api/clients/reset
+  async resetClients(clearAll: boolean = false): Promise<{ status: string; count: number; clients: HospitalClient[] }> {
+    return request<{ status: string; count: number; clients: HospitalClient[] }>(`/api/clients/reset?clear_all=${clearAll}`, {
+      method: 'POST',
+    });
+  },
+
   // POST http://127.0.0.1:8000/api/auth/login
   async login(email: string, password: string, role?: string, name?: string): Promise<any> {
     return request<any>('/api/auth/login', {

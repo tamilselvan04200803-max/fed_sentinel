@@ -27,6 +27,11 @@ export interface FederationRound {
 export interface StartRoundRequest {
   round_id?: number;
   target_clients?: string[];
+  custom_accuracy?: number;
+  custom_quarantined?: string[];
+  custom_clients?: CreateClientRequest[];
+  defense_threshold?: number;
+  notes?: string;
 }
 
 export interface BlastRadius {

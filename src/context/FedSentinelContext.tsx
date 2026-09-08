@@ -11,6 +11,7 @@ import {
   UserRole,
   CreateClientRequest,
   ClientActionRequest,
+  StartRoundRequest,
 } from '../types';
 import { apiClient, getApiBaseUrl, setApiBaseUrl, ApiError } from '../api/client';
 import { wsClient } from '../api/websocket';
@@ -66,16 +67,18 @@ interface FedSentinelContextType {
   signUp: (name: string, email: string, password: string, role?: UserRole, hospitalAffiliation?: string) => Promise<UserProfile>;
   signOut: () => void;
 
-  // Hospital Node Registration
+  // Hospital Node Registration & Management
   isAddClientModalOpen: boolean;
   setAddClientModalOpen: (open: boolean) => void;
   addHospitalClient: (clientData: CreateClientRequest) => Promise<HospitalClient>;
+  deleteHospitalClient: (clientId: string) => Promise<void>;
+  resetHospitalClients: (clearAll?: boolean) => Promise<void>;
   isAddingClient: boolean;
   overrideClientStatus: (clientId: string, action: 'REINSTATE' | 'QUARANTINE' | 'BLOCK' | 'ADJUST_TRUST', trustScore?: number, reason?: string) => Promise<HospitalClient>;
 
   // Actions
   refreshAllData: () => Promise<void>;
-  startRound: (targetClients?: string[]) => Promise<FederationRound>;
+  startRound: (options?: StartRoundRequest | string[]) => Promise<FederationRound>;
   isStartingRound: boolean;
   startSimulation: () => Promise<Incident>;
   isSimulating: boolean;
@@ -348,14 +351,12 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const msg = err?.message || 'Failed to connect to backend';
       console.warn('FedSentinel API fetch failed:', msg);
 
-      if (isMockModeActive) {
-        setClients((prev) => (prev.length > 0 ? prev : MOCK_CLIENTS));
-        setRounds((prev) => (prev.length > 0 ? prev : MOCK_ROUNDS));
-        setIncidents((prev) => (prev.length > 0 ? prev : MOCK_INCIDENTS));
-        setEvents((prev) => (prev.length > 0 ? prev : MOCK_EVENTS));
-      } else {
-        setError(msg);
-      }
+      setError(msg);
+      // Auto-populate local data so UI remains fully interactive even before backend is started
+      setClients((prev) => (prev.length > 0 ? prev : MOCK_CLIENTS));
+      setRounds((prev) => (prev.length > 0 ? prev : MOCK_ROUNDS));
+      setIncidents((prev) => (prev.length > 0 ? prev : MOCK_INCIDENTS));
+      setEvents((prev) => (prev.length > 0 ? prev : MOCK_EVENTS));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -507,21 +508,95 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   };
 
-  // Start Round Action
-  const startRound = async (targetClients?: string[]): Promise<FederationRound> => {
+  // Delete Hospital Client Method
+  const deleteHospitalClient = async (clientId: string): Promise<void> => {
+    try {
+      const cleanId = clientId.trim().toUpperCase();
+      if (isMockModeActive || error) {
+        setClients((prev) => prev.filter((c) => c.client_id.toUpperCase() !== cleanId));
+        showToast(`Hospital node ${cleanId} removed from consortium.`, 'info', 'Node Removed');
+        return;
+      }
+      await apiClient.deleteClient(cleanId);
+      await fetchData();
+      showToast(`Hospital node ${cleanId} removed from consortium.`, 'info', 'Node Removed');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete hospital node.', 'error', 'Delete Failed');
+      throw err;
+    }
+  };
+
+  // Reset Hospital Clients Method
+  const resetHospitalClients = async (clearAll: boolean = false): Promise<void> => {
+    try {
+      if (isMockModeActive || error) {
+        if (clearAll) {
+          setClients([]);
+          showToast('All hospital nodes cleared.', 'info', 'Nodes Cleared');
+        } else {
+          setClients(MOCK_CLIENTS);
+          showToast('Hospital registry reset to default nodes.', 'info', 'Registry Reset');
+        }
+        return;
+      }
+      await apiClient.resetClients(clearAll);
+      await fetchData();
+      showToast(clearAll ? 'All hospital nodes cleared.' : 'Hospital registry reset.', 'info', 'Reset Complete');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to reset clients.', 'error', 'Reset Failed');
+      throw err;
+    }
+  };
+
+  // Start Round Action (Supports Quick Quorum or Full Custom Input Values)
+  const startRound = async (options?: StartRoundRequest | string[]): Promise<FederationRound> => {
     setIsStartingRound(true);
     try {
-      if (isMockModeActive) {
+      const isReqObj = options && typeof options === 'object' && !Array.isArray(options);
+      const req: StartRoundRequest = isReqObj
+        ? (options as StartRoundRequest)
+        : { target_clients: options as string[] | undefined };
+
+      const targetClients = req.target_clients;
+      const customAcc = req.custom_accuracy;
+      const customQuar = req.custom_quarantined;
+
+      // Handle custom clients registered inline
+      if (req.custom_clients && req.custom_clients.length > 0) {
+        for (const cData of req.custom_clients) {
+          const cId = cData.client_id.trim().toUpperCase();
+          if (!clients.some((c) => c.client_id.toUpperCase() === cId)) {
+            const newC: HospitalClient = {
+              client_id: cId,
+              name: cData.name.trim(),
+              status: cData.status || 'TRUSTED',
+              trust_score: cData.trust_score ?? 95,
+              samples_count: cData.samples_count ?? 1000,
+              historical_anomalies: 0,
+              last_active_round: (rounds[0]?.round_id || 24) + 1,
+            };
+            setClients((prev) => [...prev, newC]);
+          }
+        }
+      }
+
+      if (isMockModeActive || error) {
         await new Promise((res) => setTimeout(res, 800));
-        const nextRoundId = (rounds[0]?.round_id || 24) + 1;
+        const nextRoundId = req.round_id || (rounds[0]?.round_id || 24) + 1;
         const participating = targetClients || clients.map((c) => c.client_id);
+        const quarantined = customQuar !== undefined
+          ? customQuar
+          : participating.includes('H3') ? ['H3'] : [];
+        const accepted = participating.filter((c) => !quarantined.includes(c));
+        const newAcc = customAcc !== undefined ? customAcc : Number((Math.min(99.4, (rounds[0]?.global_accuracy || 94.5) + 0.3)).toFixed(1));
+
         const newRound: FederationRound = {
           round_id: nextRoundId,
           status: 'COMPLETED',
           participating_clients: participating,
-          quarantined_clients: participating.includes('H3') ? ['H3'] : [],
-          accepted_clients: participating.filter((c) => c !== 'H3'),
-          global_accuracy: 94.8,
+          quarantined_clients: quarantined,
+          accepted_clients: accepted,
+          global_accuracy: newAcc,
           timestamp: new Date().toISOString(),
         };
 
@@ -532,18 +607,18 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
           client_id: 'SYSTEM',
           payload: {
             participating_count: participating.length,
-            global_accuracy: 94.8,
+            global_accuracy: newAcc,
           },
           timestamp: new Date().toISOString(),
         });
-        showToast(`Federation Round #${nextRoundId} completed successfully! Accuracy: 94.8%`, 'success', 'Round Completed');
+        showToast(`Federation Round #${nextRoundId} completed successfully! Accuracy: ${newAcc}%`, 'success', 'Round Completed');
         return newRound;
       }
 
-      const nextRoundId = (rounds[0]?.round_id || 0) + 1;
+      const nextRoundId = req.round_id || (rounds[0]?.round_id || 0) + 1;
       const result = await apiClient.startRound({
+        ...req,
         round_id: nextRoundId,
-        target_clients: targetClients,
       });
 
       await fetchData();
@@ -722,6 +797,8 @@ export const FedSentinelProvider: React.FC<{ children: React.ReactNode }> = ({ c
         isAddClientModalOpen,
         setAddClientModalOpen,
         addHospitalClient,
+        deleteHospitalClient,
+        resetHospitalClients,
         isAddingClient,
         overrideClientStatus,
 

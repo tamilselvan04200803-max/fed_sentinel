@@ -76,6 +76,11 @@ class FederationRound(BaseModel):
 class StartRoundRequest(BaseModel):
     round_id: Optional[int] = None
     target_clients: Optional[List[str]] = None
+    custom_accuracy: Optional[float] = None
+    custom_quarantined: Optional[List[str]] = None
+    custom_clients: Optional[List[CreateClientRequest]] = None
+    defense_threshold: Optional[float] = None
+    notes: Optional[str] = None
 
 
 class BlastRadius(BaseModel):
@@ -670,6 +675,60 @@ async def override_client_status(client_id: str, req: ClientActionRequest):
     return {"client": client.model_dump(), **client.model_dump()}
 
 
+@app.delete("/api/clients/{client_id}")
+async def delete_client(client_id: str):
+    global clients_db, TRUST_PROFILES
+
+    cid = client_id.strip().upper()
+    client = next((c for c in clients_db if c.client_id.upper() == cid), None)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client '{cid}' not found.")
+
+    clients_db = [c for c in clients_db if c.client_id.upper() != cid]
+    if cid in TRUST_PROFILES:
+        del TRUST_PROFILES[cid]
+
+    await ws_manager.broadcast(
+        event_type="CLIENT_STATUS_UPDATED",
+        round_id=rounds_db[0].round_id if rounds_db else 24,
+        client_id=cid,
+        payload={"action": "DELETED", "status": "REMOVED", "reason": f"Node {cid} deleted from enclave consortium"},
+    )
+
+    return {"status": "DELETED", "client_id": cid}
+
+
+@app.post("/api/clients/reset")
+async def reset_clients(clear_all: bool = False):
+    global clients_db, TRUST_PROFILES
+
+    if clear_all:
+        clients_db = []
+        TRUST_PROFILES = {}
+    else:
+        clients_db = [c.model_copy() for c in INITIAL_CLIENTS]
+        TRUST_PROFILES = {}
+        for c in clients_db:
+            TRUST_PROFILES[c.client_id] = {
+                "client_id": c.client_id,
+                "current_trust_score": c.trust_score,
+                "status": c.status,
+                "incident_count": 0,
+                "trust_history": [],
+                "penalties": [],
+                "factors": {"anomaly_resistance": 0.95, "influence_safety": 0.94, "counterfactual_stability": 0.96, "consistency": 0.98},
+            }
+
+    await ws_manager.broadcast(
+        event_type="CLIENT_STATUS_UPDATED",
+        round_id=rounds_db[0].round_id if rounds_db else 24,
+        client_id="SYSTEM",
+        payload={"action": "RESET", "clear_all": clear_all, "count": len(clients_db)},
+    )
+
+    return {"status": "SUCCESS", "count": len(clients_db), "clients": [c.model_dump() for c in clients_db]}
+
+
 @app.get("/api/rounds")
 async def get_rounds():
     return [r.model_dump() for r in rounds_db]
@@ -677,25 +736,59 @@ async def get_rounds():
 
 @app.post("/api/rounds/start")
 async def start_round(request: StartRoundRequest):
-    global rounds_db, clients_db
+    global rounds_db, clients_db, TRUST_PROFILES
 
     latest_round_id = rounds_db[0].round_id if rounds_db else 24
     next_round_id = request.round_id or (latest_round_id + 1)
 
+    # If any custom clients were passed inline with the round request, register them dynamically
+    if request.custom_clients:
+        for c_req in request.custom_clients:
+            c_id = c_req.client_id.strip().upper()
+            existing = next((c for c in clients_db if c.client_id.upper() == c_id), None)
+            if not existing:
+                new_c = HospitalClient(
+                    client_id=c_id,
+                    name=c_req.name.strip(),
+                    status=c_req.status or "TRUSTED",
+                    trust_score=c_req.trust_score if c_req.trust_score is not None else 95,
+                    samples_count=c_req.samples_count if c_req.samples_count is not None else 1000,
+                    historical_anomalies=0,
+                    last_active_round=next_round_id,
+                    enclave_type=c_req.enclave_type or "Intel SGX Enclave",
+                    department=c_req.department or "Clinical Research",
+                )
+                clients_db.append(new_c)
+                TRUST_PROFILES[c_id] = {
+                    "client_id": c_id,
+                    "current_trust_score": new_c.trust_score,
+                    "status": new_c.status,
+                    "incident_count": 0,
+                    "trust_history": [],
+                    "penalties": [],
+                    "factors": {"anomaly_resistance": 0.95, "influence_safety": 0.94, "counterfactual_stability": 0.96, "consistency": 0.98},
+                }
+
     all_client_ids = [c.client_id for c in clients_db if c.status != "BLOCKED"]
     participating = request.target_clients if request.target_clients else all_client_ids
 
-    # Byzantine robust aggregation simulation:
-    # Any client with status QUARANTINED or BLOCKED is segregated
-    quarantined = [
-        cid for cid in participating
-        if any(c.client_id == cid and c.status in ("QUARANTINED", "BLOCKED") for c in clients_db)
-    ]
+    # Handle user-defined quarantined clients vs automatic Byzantine defense
+    if request.custom_quarantined is not None:
+        quarantined = [cid for cid in request.custom_quarantined if cid in participating]
+    else:
+        quarantined = [
+            cid for cid in participating
+            if any(c.client_id == cid and c.status in ("QUARANTINED", "BLOCKED") for c in clients_db)
+        ]
+
     accepted = [cid for cid in participating if cid not in quarantined]
 
-    # Calculate simulated global accuracy with zero-trust protection
-    base_acc = rounds_db[0].global_accuracy if rounds_db else 94.0
-    new_acc = round(min(98.5, base_acc + 0.3), 1)
+    # Calculate global accuracy: custom user value if provided, else smooth convergence
+    if request.custom_accuracy is not None:
+        new_acc = round(float(request.custom_accuracy), 1)
+    else:
+        base_acc = rounds_db[0].global_accuracy if rounds_db else 94.0
+        new_acc = round(min(99.4, base_acc + 0.3), 1)
 
     new_round = FederationRound(
         round_id=next_round_id,
@@ -719,7 +812,7 @@ async def start_round(request: StartRoundRequest):
         event_type="ROUND_STARTED",
         round_id=next_round_id,
         client_id="SYSTEM",
-        payload={"target_clients": participating},
+        payload={"target_clients": participating, "round_id": next_round_id},
     )
 
     if quarantined:
@@ -742,10 +835,12 @@ async def start_round(request: StartRoundRequest):
             "global_accuracy": new_acc,
             "accepted_count": len(accepted),
             "quarantined_count": len(quarantined),
+            "round_id": next_round_id,
         },
     )
 
     return {"round": new_round.model_dump(), **new_round.model_dump()}
+
 
 
 @app.get("/api/incidents")
