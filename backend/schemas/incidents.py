@@ -21,11 +21,17 @@ class Incident(BaseModel):
     incident_id: str
     client_id: str
     round_id: int
-    severity: str = Field(..., description="CRITICAL | HIGH | MEDIUM | LOW | INFO")
-    anomaly_score: float
-    trust_score: float
+    severity: str = Field(default="CRITICAL", description="CRITICAL | HIGH | MEDIUM | LOW | INFO")
+    anomaly_score: float = Field(default=0.0)
+    trust_score: float = Field(default=0.0)
     threat_hypothesis: str = "MODEL_POISONING"
-    decision: str = Field(..., description="QUARANTINED | FLAGGED | CLEARED")
+    decision: str = Field(default="QUARANTINED", description="QUARANTINED | FLAGGED | CLEARED")
+    action_taken: str = Field(default="QUARANTINED")
+    confidence: str = Field(default="HIGH")
+    update_hash: Optional[str] = None
+    integrity_status: Optional[str] = "PASS"
+    trust_before: Optional[float] = None
+    trust_after: Optional[float] = None
     aggregation_weight: float = 0.0
     affected_model_version: str = "global-model-v1"
     evidence: List[Dict[str, Any]] = Field(default_factory=list)

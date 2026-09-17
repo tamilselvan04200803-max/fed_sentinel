@@ -16,7 +16,12 @@ class TrustScore(BaseModel):
     history_component: float = Field(default=0.0, ge=0.0, le=1.0)
     robustness_component: float = Field(default=0.0, ge=0.0, le=1.0)
     contribution_component: float = Field(default=0.0, ge=0.0, le=1.0)
-    state: str = Field(default="TRUSTED", description="TRUSTED | SUSPICIOUS | QUARANTINED")
+    security_cleanliness: float = Field(default=100.0, ge=0.0, le=100.0)
+    contribution_integrity: float = Field(default=100.0, ge=0.0, le=100.0)
+    participation_reliability: float = Field(default=100.0, ge=0.0, le=100.0)
+    is_free_rider: bool = Field(default=False)
+    norm_ratio: Optional[float] = Field(default=None)
+    state: str = Field(default="TRUSTED", description="TRUSTED | SUSPICIOUS | QUARANTINED | OBSERVATION")
     timestamp: str = ""
 
 

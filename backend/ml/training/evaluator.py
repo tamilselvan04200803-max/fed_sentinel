@@ -85,7 +85,8 @@ class RootTrustEvaluator:
             n_batches += 1
 
         if total_grads is not None and n_batches > 0:
-            root_grad = total_grads / n_batches
+            # Negative gradient: represents gradient descent direction matching Delta w
+            root_grad = -(total_grads / n_batches)
         else:
             root_grad = torch.zeros_like(weights_flat)
 

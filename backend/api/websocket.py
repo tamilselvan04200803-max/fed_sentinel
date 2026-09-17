@@ -4,7 +4,7 @@ Manages active browser connections and broadcasts real-time security telemetry.
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 import json
 
@@ -27,8 +27,25 @@ class WebSocketHub:
             self.active_connections.remove(websocket)
             logger.info(f"WebSocket client disconnected. Total clients: {len(self.active_connections)}")
 
-    async def broadcast(self, event_type: str, data: Dict[str, Any]):
-        message = json.dumps({"type": event_type, "event_type": event_type, **data})
+    async def broadcast(
+        self,
+        event_type: str,
+        data: Optional[Dict[str, Any]] = None,
+        round_id: int = 0,
+        client_id: str = "SYSTEM",
+        payload: Optional[Dict[str, Any]] = None,
+    ):
+        body = payload or data or {}
+        from datetime import datetime, timezone
+        message = json.dumps({
+            "type": event_type,
+            "event_type": event_type,
+            "round_id": round_id,
+            "client_id": client_id,
+            "payload": body,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **({"data": body} if data is not None else {})
+        })
         dead_connections = []
         for connection in self.active_connections:
             try:
@@ -42,3 +59,4 @@ class WebSocketHub:
 
 # Global singleton instance
 ws_hub = WebSocketHub()
+ws_manager = ws_hub  # Alias for main.py compatibility

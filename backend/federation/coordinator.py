@@ -191,7 +191,7 @@ class FederationCoordinator:
             })
 
         # 3. Process through Zero-Trust Security Pipeline
-        sanitized_dw, fingerprints, detections, influence_scores, attribution_scores = (
+        sanitized_dw, fingerprints, detections, influence_scores, robustness_scores, attribution_scores = (
             self.security_pipeline.process_round_updates(
                 round_id=round_id,
                 base_weights=self.global_weights,
@@ -207,6 +207,7 @@ class FederationCoordinator:
         for cid in participating:
             det = detections[cid]
             inf = influence_scores.get(cid, 0.0)
+            rob = robustness_scores.get(cid, 1.0)
             attr = attribution_scores.get(cid, 0.0)
 
             trust_res = self.trust_engine.compute_trust(
@@ -214,6 +215,7 @@ class FederationCoordinator:
                 anomaly_score=det.anomaly_score,
                 influence_score=inf,
                 attribution_score=attr,
+                robustness_score=rob,
             )
             trust_scores[cid] = trust_res
 
@@ -315,3 +317,39 @@ class FederationCoordinator:
         })
 
         return fed_round
+
+    def compare_aggregation_strategies(self, raw_updates: Dict[str, torch.Tensor]) -> Dict[str, float]:
+        """
+        Runs identical round updates through all 4 aggregation strategies
+        and returns global validation accuracy for side-by-side benchmarking.
+        """
+        if not raw_updates:
+            return {"trust_weighted": 0.0, "multi_krum": 0.0, "trimmed_mean": 0.0, "fedavg": 0.0}
+
+        results = {}
+        # 1. Trust-Weighted
+        sanitized_dw, _, detections, inf, rob, attr = self.security_pipeline.process_round_updates(
+            self.current_round_id, self.global_weights, raw_updates
+        )
+        trust_scores = {}
+        for cid in raw_updates:
+            ts = self.trust_engine.compute_trust(cid, detections[cid].anomaly_score, inf.get(cid, 0.0), attr.get(cid, 0.0), rob.get(cid, 1.0))
+            trust_scores[cid] = ts
+
+        agg_weights = self.trust_engine.calculate_aggregation_weights(trust_scores, True)
+        tw_w = ModelAggregator.aggregate(self.global_weights, sanitized_dw, agg_weights, AggregationStrategy.TRUST_WEIGHTED)
+        results["trust_weighted"] = round(self.evaluator.evaluate(tw_w)["accuracy"] * 100.0, 1)
+
+        # 2. Multi-Krum
+        mk_w = ModelAggregator.aggregate(self.global_weights, raw_updates, {}, AggregationStrategy.MULTI_KRUM)
+        results["multi_krum"] = round(self.evaluator.evaluate(mk_w)["accuracy"] * 100.0, 1)
+
+        # 3. Trimmed-Mean
+        tm_w = ModelAggregator.aggregate(self.global_weights, raw_updates, {}, AggregationStrategy.TRIMMED_MEAN)
+        results["trimmed_mean"] = round(self.evaluator.evaluate(tm_w)["accuracy"] * 100.0, 1)
+
+        # 4. FedAvg (No defense)
+        fa_w = ModelAggregator.aggregate(self.global_weights, raw_updates, {}, AggregationStrategy.FEDAVG)
+        results["fedavg"] = round(self.evaluator.evaluate(fa_w)["accuracy"] * 100.0, 1)
+
+        return results

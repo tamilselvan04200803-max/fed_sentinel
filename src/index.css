@@ -1,11 +1,81 @@
 @import "tailwindcss";
 
+@theme {
+  --color-slate-850: #151f32;
+  --color-slate-900: #0f172a;
+  --color-slate-950: #020617;
+  
+  /* Semantic Status Colors */
+  --color-status-safe: var(--color-emerald-500);
+  --color-status-safe-bg: var(--color-emerald-950);
+  --color-status-warning: var(--color-amber-500);
+  --color-status-warning-bg: var(--color-amber-950);
+  --color-status-critical: var(--color-rose-500);
+  --color-status-critical-bg: var(--color-rose-950);
+  --color-status-info: var(--color-cyan-500);
+  --color-status-info-bg: var(--color-cyan-950);
+  
+  /* Brand Accents */
+  --color-brand-cyan: #00f0ff;
+  --color-brand-blue: #0ea5e9;
+
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 @layer base {
-  body {
-    background-color: #f8fafc;
-    color: #0f172a;
-    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  :root {
+    --density-row-py: 0.875rem;
+    --density-btn-h: 2.625rem;
+    --density-card-p: 1.5rem;
+    --density-font-body: 1rem;
+    --density-gap: 1.5rem;
   }
+
+  [data-density="comfortable"] {
+    --density-row-py: 0.875rem;
+    --density-btn-h: 2.625rem;
+    --density-card-p: 1.5rem;
+    --density-font-body: 1rem;
+    --density-gap: 1.5rem;
+  }
+
+  [data-density="compact"] {
+    --density-row-py: 0.5rem;
+    --density-btn-h: 2.125rem;
+    --density-card-p: 1rem;
+    --density-font-body: 0.875rem;
+    --density-gap: 1rem;
+  }
+
+  body {
+    background-color: var(--color-slate-950);
+    color: var(--color-slate-200);
+    font-family: var(--font-sans);
+    font-size: var(--density-font-body, 1rem);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Human readability standards - minimum 13px baseline for readable content */
+  p, span, div, td, th, button, input {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@utility glass-panel {
+  background-color: color-mix(in srgb, var(--color-slate-900) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--color-slate-700) 50%, transparent);
+}
+
+@utility glass-panel-active {
+  background-color: color-mix(in srgb, var(--color-slate-800) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-brand-cyan);
+  box-shadow: 0 0 15px color-mix(in srgb, var(--color-brand-cyan) 20%, transparent);
 }
 
 /* Custom Scrollbar for dense data panels */
@@ -14,17 +84,26 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--color-slate-900);
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--color-slate-700);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--color-slate-500);
 }
 
-/* Operational Monospace styles */
-.font-mono-code {
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+/* Base text selection */
+::selection {
+  background-color: color-mix(in srgb, var(--color-brand-cyan) 30%, transparent);
+  color: var(--color-white);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

@@ -3,38 +3,37 @@ import {
   Building2,
   PlusCircle,
   Shield,
-  Layers,
   Cpu,
   X,
   AlertTriangle,
-  CheckCircle2,
   Hash,
+  Database,
   Activity,
 } from 'lucide-react';
-import { useFedSentinel } from '../../context/FedSentinelContext';
-import { CreateClientRequest } from '../../types';
+import { useFedSentinelStore } from '../../store/useFedSentinelStore';
+import { HospitalClient } from '../../types';
 
-export const AddClientModal: React.FC = () => {
-  const {
-    isAddClientModalOpen,
-    setAddClientModalOpen,
-    addHospitalClient,
-    isAddingClient,
-    clients,
-  } = useFedSentinel();
+interface AddClientModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
 
-  // Suggest next ID based on existing clients (e.g. H7)
-  const nextIdSuggestion = `H${clients.length + 1}`;
+export const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose }) => {
+  const { hospitals, setHospitals, addToast, settings } = useFedSentinelStore();
+
+  const nextIdSuggestion = `H${hospitals.length + 1}`;
 
   const [clientId, setClientId] = useState(nextIdSuggestion);
   const [name, setName] = useState('');
+  const [diseaseCohort, setDiseaseCohort] = useState<'PNEUMONIA' | 'GLIOBLASTOMA'>('PNEUMONIA');
   const [enclaveType, setEnclaveType] = useState('Intel SGX Enclave');
   const [samplesCount, setSamplesCount] = useState<number>(1200);
   const [trustScore, setTrustScore] = useState<number>(95);
-  const [department, setDepartment] = useState('Radiology & Oncology');
+  const [department, setDepartment] = useState('Pulmonology & Respiratory Medicine');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  if (!isAddClientModalOpen) return null;
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,213 +43,236 @@ export const AddClientModal: React.FC = () => {
     const cleanName = name.trim();
 
     if (!cleanId || !cleanName) {
-      setErrorMsg('Both Client ID (e.g. H7) and Hospital Name are required.');
+      setErrorMsg('Both Client ID and Hospital Name are required.');
       return;
     }
 
-    // Check if ID already exists
-    if (clients.some((c) => c.client_id.toUpperCase() === cleanId)) {
-      setErrorMsg(`A hospital node with ID "${cleanId}" is already registered. Please use another ID.`);
+    if (hospitals.some((c) => c.client_id.toUpperCase() === cleanId)) {
+      setErrorMsg(`A hospital node with ID "${cleanId}" is already registered.`);
       return;
     }
 
-    const payload: CreateClientRequest = {
+    setIsSubmitting(true);
+    const newClient: HospitalClient = {
       client_id: cleanId,
       name: cleanName,
       status: trustScore >= 80 ? 'TRUSTED' : trustScore >= 50 ? 'REVIEW' : 'QUARANTINED',
       trust_score: trustScore,
       samples_count: samplesCount || 1000,
+      historical_anomalies: 0,
+      last_active_round: 24,
       enclave_type: enclaveType,
       department: department,
+      disease_cohort: diseaseCohort,
     };
 
     try {
-      await addHospitalClient(payload);
-      // Reset form
-      setName('');
-      setClientId(`H${clients.length + 2}`);
-      setAddClientModalOpen(false);
+      const res = await fetch(`${settings.apiBaseUrl}/clients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newClient),
+      });
+
+      if (res.ok) {
+        const saved = await res.json();
+        setHospitals([...hospitals, saved.client || saved]);
+        addToast({
+          type: 'success',
+          title: 'Hospital Node Enrolled',
+          message: `${cleanName} (${cleanId}) joined the federated network under ${enclaveType}.`,
+        });
+        onClose();
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Failed to enroll hospital node.' }));
+        setErrorMsg(err.detail || 'Failed to enroll hospital node.');
+      }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to register hospital node.');
+      setHospitals([...hospitals, newClient]);
+      addToast({
+        type: 'success',
+        title: 'Hospital Node Enrolled (Local)',
+        message: `${cleanName} (${cleanId}) registered in local store.`,
+      });
+      onClose();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-xs animate-fade-in">
-      <div className="bg-white rounded-xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+      <div className="bg-slate-900 rounded-xl max-w-lg w-full shadow-2xl border border-slate-800 overflow-hidden flex flex-col text-slate-200">
+        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center shadow-xs">
-              <PlusCircle className="w-5 h-5 text-emerald-400" />
+            <div className="w-9 h-9 rounded-lg bg-emerald-950 border border-emerald-800 text-emerald-400 flex items-center justify-center">
+              <PlusCircle className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
+              <h3 className="text-sm font-bold text-slate-100">
                 Register New Hospital Enclave Node
               </h3>
-              <p className="text-xs text-slate-500 font-mono-code">
-                Onboard clinical participant into Zero-Trust Federation
+              <p className="text-xs text-slate-400 font-mono-code">
+                Zero-Trust cryptographic onboarding into clinical federation
               </p>
             </div>
           </div>
           <button
-            onClick={() => setAddClientModalOpen(false)}
-            disabled={isAddingClient}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-md hover:bg-slate-100 transition-colors"
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-200 p-1.5 rounded-md hover:bg-slate-800 transition-colors"
             type="button"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4 text-xs">
           {errorMsg && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-800 text-rose-300 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Client ID */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                 Node ID *
               </label>
               <div className="relative">
-                <Hash className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Hash className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   required
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value.toUpperCase())}
                   placeholder="e.g. H7"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs font-mono-code font-bold rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 uppercase"
+                  className="w-full pl-9 pr-3 py-1.5 font-mono-code font-bold rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-100"
                 />
               </div>
             </div>
 
-            {/* Hospital Name (2 Cols) */}
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                 Hospital / Institution Name *
               </label>
               <div className="relative">
-                <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                 <input
                   type="text"
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Hospital 7 - Mount Sinai Center"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900"
+                  placeholder="Hospital 7 - Mount Sinai Medical Center"
+                  className="w-full pl-9 pr-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-100"
                 />
               </div>
             </div>
           </div>
 
-          {/* Enclave Hardware Attestation */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Confidential Hardware Enclave Platform *
+            <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+              Clinical Disease Cohort *
             </label>
-            <div className="relative">
-              <Cpu className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <select
-                value={enclaveType}
-                onChange={(e) => setEnclaveType(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 font-medium"
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDiseaseCohort('PNEUMONIA');
+                  setDepartment('Pulmonology & Respiratory Medicine');
+                }}
+                className={`p-3 rounded-lg border text-left transition-all ${
+                  diseaseCohort === 'PNEUMONIA'
+                    ? 'bg-cyan-950/40 border-brand-cyan text-brand-cyan shadow-[0_0_12px_rgba(0,240,255,0.15)]'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
               >
-                <option value="Intel SGX Enclave">Intel SGX Enclave (Hardware Attestation Pass)</option>
-                <option value="AMD SEV-SNP Confidential VM">AMD SEV-SNP Confidential Virtual Machine</option>
-                <option value="AWS Nitro Enclaves">AWS Nitro Enclaves (Cryptographic Attestation)</option>
-                <option value="Apple Secure Enclave Server">Apple Secure Enclave Enterprise Server</option>
-                <option value="Confidential Kubernetes Node">Confidential GKE / Kubernetes Node</option>
-              </select>
+                <div className="font-bold text-xs flex items-center gap-1.5">
+                  🫁 Pediatric Pulmonology
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Chest X-Ray Pneumonia Opacity (28x28)</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDiseaseCohort('GLIOBLASTOMA');
+                  setDepartment('Neuro-Oncology & Brain Tumor Center');
+                }}
+                className={`p-3 rounded-lg border text-left transition-all ${
+                  diseaseCohort === 'GLIOBLASTOMA'
+                    ? 'bg-indigo-950/40 border-indigo-400 text-indigo-300 shadow-[0_0_12px_rgba(99,102,241,0.15)]'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div className="font-bold text-xs flex items-center gap-1.5">
+                  🧠 Neuro-Oncology
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">Brain MRI Glioblastoma Pathology (28x28)</div>
+              </button>
             </div>
           </div>
 
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+              Clinical Department / Research Unit
+            </label>
+            <input
+              type="text"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-100"
+            />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Clinical Department */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Clinical Department Cohort
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                Hardware Enclave (TEE)
               </label>
               <select
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-1 focus:ring-slate-900"
+                value={enclaveType}
+                onChange={(e) => setEnclaveType(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-200"
               >
-                <option value="Radiology & Oncology">Radiology &amp; Oncology</option>
-                <option value="Neurology & Brain Mapping">Neurology &amp; Brain Mapping</option>
-                <option value="Cardiovascular Imaging">Cardiovascular Imaging</option>
-                <option value="Pediatric Genetics">Pediatric Genetics</option>
-                <option value="Immunology & Pathology">Immunology &amp; Pathology</option>
-                <option value="General Clinical Trial">General Clinical Trial</option>
+                <option value="Intel SGX Enclave">Intel SGX Enclave</option>
+                <option value="AMD SEV-SNP Confidential VM">AMD SEV-SNP Confidential VM</option>
+                <option value="AWS Nitro Enclaves">AWS Nitro Enclaves</option>
+                <option value="Apple Secure Enclave Server">Apple Secure Enclave Server</option>
+                <option value="Confidential Kubernetes Node">Confidential Kubernetes Node</option>
               </select>
             </div>
 
-            {/* Clinical Samples Count */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Clinical Dataset Size (Samples)
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                Private Dataset Size (DICOM Scans)
               </label>
               <input
                 type="number"
-                min={50}
-                max={50000}
+                min={100}
+                max={10000}
                 step={50}
                 value={samplesCount}
-                onChange={(e) => setSamplesCount(Number(e.target.value))}
-                className="w-full px-3 py-1.5 text-xs font-mono-code rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-900"
+                onChange={(e) => setSamplesCount(parseInt(e.target.value) || 1000)}
+                className="w-full px-3 py-1.5 font-mono-code font-bold rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-100"
               />
             </div>
           </div>
 
-          {/* Initial Trust Score Slider */}
-          <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-col gap-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-700 flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-slate-500" />
-                Initial Zero-Trust Score
-              </span>
-              <span className={`font-mono-code font-bold text-sm ${
-                trustScore >= 80 ? 'text-emerald-700' : trustScore >= 50 ? 'text-amber-700' : 'text-rose-700'
-              }`}>
-                {trustScore}% ({trustScore >= 80 ? 'TRUSTED' : trustScore >= 50 ? 'REVIEW' : 'QUARANTINED'})
-              </span>
-            </div>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={trustScore}
-              onChange={(e) => setTrustScore(Number(e.target.value))}
-              className="w-full accent-slate-900 cursor-pointer"
-            />
-            <span className="text-[11px] text-slate-500">
-              Zero-Trust default for attested hardware enclaves is 95%. Updates are automatically evaluated by Layer 0-5 defense.
-            </span>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-2.5 mt-2 pt-3 border-t border-slate-100">
+          <div className="mt-2 pt-4 border-t border-slate-800 flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => setAddClientModalOpen(false)}
-              disabled={isAddingClient}
-              className="px-4 py-2 text-xs font-medium rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isAddingClient}
-              className="px-4 py-2 text-xs font-bold rounded-md bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
+              disabled={isSubmitting}
+              className="px-5 py-2 rounded-lg bg-brand-cyan hover:bg-cyan-400 text-slate-950 font-bold transition-all shadow-[0_0_12px_rgba(0,240,255,0.25)] flex items-center gap-2"
             >
-              <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{isAddingClient ? 'Registering Enclave...' : 'Register Hospital Node'}</span>
+              <PlusCircle className="w-4 h-4" />
+              <span>{isSubmitting ? 'Registering...' : 'Register Enclave Node'}</span>
             </button>
           </div>
         </form>

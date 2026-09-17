@@ -23,6 +23,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def init_db():
+    """Initializes all database tables from ORM metadata."""
+    from backend.db import models  # Ensure models are imported
+    Base.metadata.create_all(bind=engine)
+
+
 def get_db():
     """FastAPI dependency for yielding transactional DB sessions."""
     db = SessionLocal()

@@ -10,6 +10,9 @@ export interface HospitalClient {
   samples_count: number;
   historical_anomalies: number;
   last_active_round: number;
+  enclave_type?: string;
+  department?: string;
+  disease_cohort?: string;
 }
 
 export type RoundStatus = 'COMPLETED' | 'IN_PROGRESS' | 'FAILED' | 'PENDING' | string;
@@ -180,6 +183,8 @@ export type NavigationPage =
   | 'threats'
   | 'model'
   | 'audit'
+  | 'compliance'
+  | 'pitch'
   | 'settings';
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected' | 'error';
@@ -211,3 +216,86 @@ export interface ClientActionRequest {
   trust_score?: number;
   reason?: string;
 }
+
+export interface ClientReadiness {
+  client_id: string;
+  name: string;
+  readiness_status: 'READY' | 'ATTENTION_REQUIRED' | 'BLOCKED';
+  node_status: string;
+  trust_score: number;
+  hardware_tee: {
+    enclave_type: string;
+    attestation_status: string;
+    pcr0_measurement: string;
+    hardware_security_module: string;
+    secure_boot: boolean;
+    certificate_expires: string;
+  };
+  dataset_health: {
+    cohort: string;
+    samples_verified: number;
+    class_distribution: Record<string, string>;
+    dicom_schema_conformance: string;
+    phi_leakage_risk: string;
+    data_drift_metric: number;
+  };
+  enclave_software_stack: {
+    fedsentinel_agent_version: string;
+    pytorch_enclave_version: string;
+    python_runtime: string;
+    tls_version: string;
+  };
+  network_telemetry: {
+    latency_ms: number;
+    bandwidth_mbps: number;
+    packet_loss_pct: number;
+    last_heartbeat: string;
+  };
+  issues: string[];
+  recommendations: string[];
+}
+
+export interface TrainingJobStage {
+  stage: string;
+  status: 'COMPLETED' | 'RUNNING' | 'PENDING' | 'FAILED';
+  started_at?: string;
+  completed_at?: string;
+  detail?: string;
+}
+
+export interface TrainingJob {
+  job_id: string;
+  client_id: string;
+  client_name: string;
+  status: 'QUEUED' | 'INITIALIZING' | 'TRAINING' | 'VALIDATING' | 'SECURITY_SCAN' | 'COMPLETED' | 'FAILED';
+  created_at: string;
+  completed_at?: string;
+  disease_type: string;
+  epochs: number;
+  attack_mode: string;
+  is_free_rider?: boolean;
+  loss_curve?: number[];
+  final_loss?: number;
+  final_accuracy?: number;
+  update_norm?: number;
+  update_hash?: string;
+  trust_score?: number;
+  stages: TrainingJobStage[];
+}
+
+export interface ModelExperiment {
+  experiment_id: string;
+  timestamp: string;
+  defense_strategy: string;
+  attack_type: string;
+  seed: number;
+  client_count: number;
+  attack_ratio: number;
+  global_accuracy: number;
+  attack_success_rate: number;
+  parameter_checksum: string;
+  model_architecture: string;
+  provenance_note: string;
+  norm_ratio_distribution?: Record<string, number>;
+}
+

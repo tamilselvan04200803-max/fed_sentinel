@@ -55,6 +55,7 @@ class AggregationStrategy(str, Enum):
     FEDAVG = "fedavg"
     TRUST_WEIGHTED = "trust_weighted"
     TRIMMED_MEAN = "trimmed_mean"
+    MULTI_KRUM = "multi_krum"
 
 
 # ── Attack Type ──────────────────────────────────────────────────────

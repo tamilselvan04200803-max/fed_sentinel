@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     APP_NAME: str = "FedSentinel-Health"
     APP_VERSION: str = "3.0.0"
     DEBUG: bool = False
+    ENVIRONMENT: str = "DEMO"  # DEVELOPMENT | DEMO | PRODUCTION
+    ENABLE_DEMO_MODE: bool = True
+
+    # ── Auth & Identity ──────────────────────────────────────────────
+    JWT_SECRET: str = "fedsentinel_secops_hmac_secret_key_2026_healthcare_ai"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_SECONDS: int = 86400
 
     # ── Database ─────────────────────────────────────────────────────
     DATABASE_URL: str = "sqlite:///./fedsentinel.db"
@@ -52,6 +59,13 @@ class Settings(BaseSettings):
     ROOT_VALIDATION_SIZE: int = 500
     RANDOM_SEED: int = 42
 
+    # ── Differential Privacy (DP) ────────────────────────────────────
+    DP_ENABLED: bool = False
+    DP_NOISE_MULTIPLIER: float = 0.5
+    DP_CLIP_NORM: float = 10.0
+    DP_TARGET_EPSILON: float = 3.5
+    DP_TARGET_DELTA: float = 1e-5
+
     # ── Trust Computation Weights ────────────────────────────────────
     TRUST_WEIGHT_ANOMALY: float = 0.35
     TRUST_WEIGHT_INFLUENCE: float = 0.25
@@ -77,7 +91,7 @@ class Settings(BaseSettings):
     DATA_DIR: str = "./data"
     MODEL_STORE_DIR: str = "./models"
 
-    model_config: ClassVar[dict] = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config: ClassVar[dict] = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 # Singleton settings instance

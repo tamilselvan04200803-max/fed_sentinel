@@ -16,6 +16,8 @@ from backend.schemas.detections import DetectionResult
 from backend.schemas.updates import UpdateFingerprint
 
 
+from backend.security.robustness.robustness_tester import RobustnessTester
+
 class SecurityPipeline:
     """End-to-end multi-layer Zero-Trust security gateway."""
 
@@ -25,6 +27,7 @@ class SecurityPipeline:
         self.l1_fingerprinter = Layer1Fingerprinter()
         self.l2_anomaly_engine = Layer2AnomalyEngine()
         self.influence_tester = InfluenceTester(evaluator)
+        self.robustness_tester = RobustnessTester(evaluator)
         self.attribution_engine = GroupAttributionEngine()
 
     def process_round_updates(
@@ -32,7 +35,7 @@ class SecurityPipeline:
         round_id: int,
         base_weights: torch.Tensor,
         raw_updates: Dict[str, torch.Tensor],
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, UpdateFingerprint], Dict[str, DetectionResult], Dict[str, float], Dict[str, float]]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, UpdateFingerprint], Dict[str, DetectionResult], Dict[str, float], Dict[str, float], Dict[str, float]]:
         """
         Processes all incoming hospital updates through the full security pipeline.
         Returns:
@@ -40,6 +43,7 @@ class SecurityPipeline:
             - fingerprints: Dict[client_id, UpdateFingerprint]
             - detections: Dict[client_id, DetectionResult]
             - influence_scores: Dict[client_id, float]
+            - robustness_scores: Dict[client_id, float]
             - attribution_scores: Dict[client_id, float]
         """
         # --- Layer 0: Input Validation & Sanitization ---
@@ -71,7 +75,10 @@ class SecurityPipeline:
         # --- Counterfactual Influence Testing ---
         influence_scores = self.influence_tester.compute_influence(base_weights, sanitized_updates)
 
+        # --- Layer 5: Robustness Testing ---
+        robustness_scores = self.robustness_tester.evaluate_robustness(base_weights, sanitized_updates)
+
         # --- Group Attribution ---
         attribution_scores = self.attribution_engine.compute_attribution(sanitized_updates, root_grad)
 
-        return sanitized_updates, fingerprints, detections, influence_scores, attribution_scores
+        return sanitized_updates, fingerprints, detections, influence_scores, robustness_scores, attribution_scores

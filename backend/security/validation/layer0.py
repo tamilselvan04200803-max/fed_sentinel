@@ -4,7 +4,7 @@ Structural integrity checks, NaN/Inf detection, gradient norm limits, and dynami
 """
 
 import torch
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 from backend.core.config import settings
 from backend.schemas.detections import EvidenceItem
 
@@ -15,17 +15,48 @@ class Layer0Validator:
     def __init__(self, max_norm: float = settings.MAX_UPDATE_NORM, clip_threshold: float = settings.GRADIENT_CLIP_NORM):
         self.max_norm = max_norm
         self.clip_threshold = clip_threshold
+        self.seen_nonces: set[str] = set()
 
-    def validate_update(self, client_id: str, delta_w: torch.Tensor) -> Tuple[bool, torch.Tensor, List[EvidenceItem]]:
+    def validate_update(
+        self,
+        client_id: str,
+        delta_w: torch.Tensor,
+        current_round_id: int = 1,
+        submitted_round_id: Optional[int] = None,
+        nonce: Optional[str] = None,
+    ) -> Tuple[bool, torch.Tensor, List[EvidenceItem]]:
         """
-        Validates raw update vector Δw_i.
-        Returns:
-            - is_valid: bool
-            - sanitized_delta_w: clipped tensor
-            - evidence_items: list of Layer 0 forensic checks
+        Validates raw update vector Δw_i and metadata (replay protection & stale round checks).
         """
         evidence: List[EvidenceItem] = []
         is_valid = True
+
+        # Check 0: Replay & Stale Round Protection
+        if submitted_round_id is not None and submitted_round_id != current_round_id:
+            is_valid = False
+            evidence.append(EvidenceItem(
+                layer="L0",
+                signal="stale_round_check",
+                value=float(submitted_round_id),
+                threshold=float(current_round_id),
+                status="FAIL",
+                description=f"Stale update rejected: submitted round {submitted_round_id} != active round {current_round_id}."
+            ))
+            return False, torch.zeros_like(delta_w), evidence
+
+        if nonce is not None:
+            if nonce in self.seen_nonces:
+                is_valid = False
+                evidence.append(EvidenceItem(
+                    layer="L0",
+                    signal="replay_attack_check",
+                    value=1.0,
+                    threshold=0.0,
+                    status="FAIL",
+                    description=f"Replay attack detected! Duplicate nonce '{nonce}' rejected."
+                ))
+                return False, torch.zeros_like(delta_w), evidence
+            self.seen_nonces.add(nonce)
 
         # Check 1: NaN or Inf check
         has_nan = torch.isnan(delta_w).any().item()

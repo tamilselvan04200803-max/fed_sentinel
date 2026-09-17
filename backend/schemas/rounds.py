@@ -14,7 +14,7 @@ class FederationRound(BaseModel):
     participating_clients: List[str] = Field(default_factory=list)
     quarantined_clients: List[str] = Field(default_factory=list)
     accepted_clients: List[str] = Field(default_factory=list)
-    global_accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
+    global_accuracy: float = Field(default=0.0, ge=0.0, le=100.0)
     global_loss: float = Field(default=0.0, ge=0.0)
     aggregation_strategy: str = Field(default="trust_weighted")
     duration_ms: float = Field(default=0.0)

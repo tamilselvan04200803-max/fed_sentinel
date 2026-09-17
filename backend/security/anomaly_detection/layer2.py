@@ -44,7 +44,8 @@ class Layer2AnomalyEngine:
         median_norm = float(np.median(all_norms))
         # Median Absolute Deviation (MAD) with normal distribution scale factor 1.4826
         mad = float(np.median(np.abs(all_norms - median_norm)))
-        mad = max(mad, 1e-4)
+        # Floor MAD at 20% of median norm to prevent small natural cohort variances from triggering false alarms
+        mad = max(mad, 0.20 * max(median_norm, 1e-3), 1e-4)
 
         results: Dict[str, DetectionResult] = {}
 

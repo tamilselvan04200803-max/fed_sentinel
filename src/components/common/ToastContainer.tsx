@@ -1,9 +1,9 @@
 import React from 'react';
 import { CheckCircle2, AlertTriangle, Info, XCircle, X } from 'lucide-react';
-import { useFedSentinel, ToastMessage } from '../../context/FedSentinelContext';
+import { useFedSentinelStore, ToastMessage } from '../../store/useFedSentinelStore';
 
 export const ToastContainer: React.FC = () => {
-  const { toasts, removeToast } = useFedSentinel();
+  const { toasts, removeToast } = useFedSentinelStore();
 
   if (toasts.length === 0) return null;
 

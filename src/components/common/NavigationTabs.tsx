@@ -1,76 +1,39 @@
 import React from 'react';
-import {
-  LayoutDashboard,
-  Building2,
-  GitCommit,
-  AlertTriangle,
-  Microscope,
-} from 'lucide-react';
+import { LayoutDashboard, Network, GitCommit, AlertTriangle, Microscope, ShieldCheck, Database, Scale, Sparkles } from 'lucide-react';
 import { NavigationPage } from '../../types';
-import { useFedSentinel } from '../../context/FedSentinelContext';
+import { useFedSentinelStore } from '../../store/useFedSentinelStore';
 
 export const NavigationTabs: React.FC = () => {
-  const {
-    activeTab,
-    setActiveTab,
-    clients,
-    rounds,
-    incidents,
-    selectedIncidentId,
-  } = useFedSentinel();
+  const { activeTab, setActiveTab, federationRounds, incidents, selectedIncidentId } = useFedSentinelStore();
 
-  const quarantinedCount = clients.filter((c) => c.status === 'QUARANTINED').length;
-  const reviewCount = clients.filter((c) => c.status === 'REVIEW').length;
-  const openIncidentsCount = incidents.filter(
-    (i) => i.action_taken === 'QUARANTINED' || i.action_taken === 'FLAGGED_REVIEW'
-  ).length;
+  const openIncidentsCount = incidents.filter(i => i.action_taken === 'QUARANTINED' || i.action_taken === 'FLAGGED_REVIEW').length;
 
-  const tabs: Array<{
-    id: NavigationPage;
-    label: string;
-    icon: React.ElementType;
-    badge?: string | number;
-    badgeColor?: string;
-  }> = [
-    {
-      id: 'overview',
-      label: 'Security Overview',
-      icon: LayoutDashboard,
-    },
-    {
-      id: 'clients',
-      label: 'Hospital Clients',
-      icon: Building2,
-      badge: clients.length,
-      badgeColor: 'bg-slate-100 text-slate-700',
-    },
-    {
-      id: 'rounds',
-      label: 'Federation Rounds',
-      icon: GitCommit,
-      badge: rounds.length > 0 ? `R${rounds[0]?.round_id}` : undefined,
-      badgeColor: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    },
-    {
-      id: 'incidents',
-      label: 'Incidents & Blast Radius',
-      icon: AlertTriangle,
-      badge: openIncidentsCount > 0 ? openIncidentsCount : undefined,
-      badgeColor: 'bg-rose-50 text-rose-700 border border-rose-200',
-    },
-    {
-      id: 'investigation',
-      label: 'Layer 0-5 Investigation',
+  const tabs: Array<{ id: NavigationPage; label: string; icon: React.ElementType; badge?: string | number }> = [
+    { id: 'overview', label: 'Command Center', icon: LayoutDashboard },
+    { id: 'clients', label: 'Federation Network', icon: Network },
+    { id: 'model', label: 'Model Center', icon: Database },
+    { id: 'threats', label: 'Security Center', icon: ShieldCheck },
+    { 
+      id: 'investigation', 
+      label: 'Investigation', 
       icon: Microscope,
-      badge: selectedIncidentId || undefined,
-      badgeColor: 'bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono-code',
+      badge: selectedIncidentId || undefined 
     },
+    { 
+      id: 'incidents', 
+      label: 'Incidents', 
+      icon: AlertTriangle,
+      badge: openIncidentsCount > 0 ? openIncidentsCount : undefined
+    },
+    { id: 'audit', label: 'Trust Center', icon: GitCommit },
+    { id: 'compliance', label: 'Compliance & Legal', icon: Scale },
+    { id: 'pitch', label: 'Platform Pitch', icon: Sparkles },
   ];
 
   return (
-    <nav aria-label="Dashboard views" className="bg-white border-b border-slate-200">
+    <nav className="bg-slate-950 border-b border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex space-x-1 overflow-x-auto py-2 no-scrollbar">
+        <div className="flex space-x-2 py-2 overflow-x-auto no-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -78,22 +41,16 @@ export const NavigationTabs: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-md transition-all whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1 ${
+                className={`inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded transition-all whitespace-nowrap border ${
                   isActive
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'bg-slate-900 border-brand-cyan/50 text-brand-cyan shadow-[0_0_10px_rgba(0,240,255,0.1)]'
+                    : 'bg-transparent border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
                 }`}
-                type="button"
-                aria-current={isActive ? 'page' : undefined}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
+                <Icon className="w-3.5 h-3.5" />
                 <span>{tab.label}</span>
-                {tab.badge !== undefined && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono-code font-bold ${
-                      isActive ? 'bg-slate-800 text-slate-200' : tab.badgeColor
-                    }`}
-                  >
+                {tab.badge && (
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono-code font-bold ${isActive ? 'bg-brand-cyan text-slate-950' : 'bg-slate-800 text-slate-300'}`}>
                     {tab.badge}
                   </span>
                 )}

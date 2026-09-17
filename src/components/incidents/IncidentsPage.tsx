@@ -15,19 +15,23 @@ import {
   ChevronRight,
   Download,
   RotateCcw,
+  ExternalLink,
 } from 'lucide-react';
-import { useFedSentinel } from '../../context/FedSentinelContext';
+import { useFedSentinelStore } from '../../store/useFedSentinelStore';
 import { Incident } from '../../types';
 
 export const IncidentsPage: React.FC = () => {
-  const { incidents, navigateToInvestigation, setSelectedClientId, showToast } = useFedSentinel();
+  const {
+    incidents,
+    setSelectedIncidentId,
+    setActiveTab,
+    addToast,
+    settings,
+  } = useFedSentinelStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [threatFilter, setThreatFilter] = useState<string>('ALL');
-  const [confidenceFilter, setConfidenceFilter] = useState<string>('ALL');
   const [actionFilter, setActionFilter] = useState<string>('ALL');
-  const [clientFilter, setClientFilter] = useState<string>('ALL');
-
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopy = (text: string, id: string) => {
@@ -35,24 +39,6 @@ export const IncidentsPage: React.FC = () => {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1800);
   };
-
-  const handleExportLedger = () => {
-    const blob = new Blob([JSON.stringify(incidents, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fedsentinel-incident-register-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast(`Exported ${incidents.length} incident tickets to JSON.`, 'success', 'Ledger Exported');
-  };
-
-  const clientList = useMemo(() => {
-    const set = new Set(incidents.map((i) => i.client_id));
-    return ['ALL', ...Array.from(set)];
-  }, [incidents]);
 
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
@@ -63,281 +49,202 @@ export const IncidentsPage: React.FC = () => {
         inc.threat_hypothesis.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesThreat = threatFilter === 'ALL' || inc.threat_hypothesis === threatFilter;
-      const matchesConfidence = confidenceFilter === 'ALL' || inc.confidence === confidenceFilter;
       const matchesAction = actionFilter === 'ALL' || inc.action_taken === actionFilter;
-      const matchesClient = clientFilter === 'ALL' || inc.client_id === clientFilter;
 
-      return matchesSearch && matchesThreat && matchesConfidence && matchesAction && matchesClient;
+      return matchesSearch && matchesThreat && matchesAction;
     });
-  }, [incidents, searchQuery, threatFilter, confidenceFilter, actionFilter, clientFilter]);
+  }, [incidents, searchQuery, threatFilter, actionFilter]);
 
-  const hasActiveFilters = threatFilter !== 'ALL' || confidenceFilter !== 'ALL' || actionFilter !== 'ALL' || clientFilter !== 'ALL' || searchQuery.trim().length > 0;
-
-  const resetFilters = () => {
-    setSearchQuery('');
-    setThreatFilter('ALL');
-    setConfidenceFilter('ALL');
-    setActionFilter('ALL');
-    setClientFilter('ALL');
+  const handleExportJson = () => {
+    const blob = new Blob([JSON.stringify(incidents, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fedsentinel-incident-ledger-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToast({
+      type: 'info',
+      title: 'Ledger Exported',
+      message: `Exported ${incidents.length} security incident records to JSON.`,
+    });
   };
 
-  const getActionBadge = (action: string) => {
-    switch (action) {
-      case 'QUARANTINED':
-        return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono-code font-bold bg-rose-50 text-rose-700 border border-rose-200">
-            QUARANTINED
-          </span>
-        );
-      case 'BLOCKED':
-        return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono-code font-bold bg-red-950 text-rose-200 border border-rose-900">
-            BLOCKED
-          </span>
-        );
-      case 'FLAGGED_REVIEW':
-        return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono-code font-bold bg-amber-50 text-amber-700 border border-amber-200">
-            FLAGGED REVIEW
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono-code font-bold bg-slate-100 text-slate-700">
-            {action}
-          </span>
-        );
-    }
+  const openInvestigation = (incidentId: string) => {
+    setSelectedIncidentId(incidentId);
+    setActiveTab('investigation');
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-rose-600" />
-            Security Incident Register &amp; Blast Radius Ledger
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Traceable cryptographic evidence, threat hypotheses, and containment actions.
-          </p>
+    <div className="flex flex-col gap-5">
+      {/* Header Banner */}
+      <div className="glass-panel rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-rose-950/60 border border-rose-800/60 flex items-center justify-center text-rose-400">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-slate-100">
+                SecOps Threat & Incident Ledger
+              </h1>
+              <span className="text-[10px] font-mono-code px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800">
+                {incidents.length} INCIDENTS LOGGED
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Cryptographically verified adversarial model manipulation attempts, gradient poisoning, and backdoor triggers.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
-          <button
-            onClick={handleExportLedger}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-colors shadow-2xs"
-            type="button"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Export Register (JSON)</span>
-          </button>
-
-          <span className="px-2.5 py-1 rounded bg-slate-100 text-slate-700 font-semibold font-mono-code">
-            Total {incidents.length} Tickets
-          </span>
-          <span className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-semibold font-mono-code">
-            {incidents.filter((i) => i.action_taken === 'QUARANTINED').length} Quarantined
-          </span>
-        </div>
+        <button
+          onClick={handleExportJson}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-brand-cyan font-bold text-xs border border-brand-cyan/30 transition-all shadow-[0_0_12px_rgba(0,240,255,0.15)]"
+        >
+          <Download className="w-4 h-4" />
+          <span>Export Incident Ledger (JSON)</span>
+        </button>
       </div>
 
-      {/* Filter and Search Controls */}
-      <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row items-center gap-3">
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search by Ticket ID, node, SHA-256 hash, or threat..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 font-sans"
-            />
-          </div>
+      {/* Filter & Search Bar */}
+      <div className="glass-panel rounded-lg p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by ID, client, threat, or hash..."
+            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md bg-slate-950 border border-slate-800 focus:outline-none focus:border-brand-cyan text-slate-200"
+          />
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs w-full sm:w-auto">
-            {/* Threat Filter */}
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 text-[11px]">Threat:</span>
-              <select
-                value={threatFilter}
-                onChange={(e) => setThreatFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 font-mono-code text-[11px]"
-              >
-                <option value="ALL">All Threats</option>
-                <option value="BACKDOOR">BACKDOOR</option>
-                <option value="MODEL_POISONING">MODEL_POISONING</option>
-                <option value="FREE_RIDER">FREE_RIDER</option>
-              </select>
-            </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <select
+            value={threatFilter}
+            onChange={(e) => setThreatFilter(e.target.value)}
+            className="px-3 py-1.5 text-xs font-mono-code rounded-md bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-brand-cyan"
+          >
+            <option value="ALL">All Threat Types</option>
+            <option value="BACKDOOR">Backdoor Trigger</option>
+            <option value="MODEL_POISONING">Model Poisoning</option>
+            <option value="LABEL_POISONING">Label Poisoning</option>
+            <option value="FREE_RIDER">Free Rider (Zero Delta)</option>
+          </select>
 
-            {/* Confidence Filter */}
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 text-[11px]">Confidence:</span>
-              <select
-                value={confidenceFilter}
-                onChange={(e) => setConfidenceFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 font-mono-code text-[11px]"
-              >
-                <option value="ALL">All Confidences</option>
-                <option value="HIGH">HIGH</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LOW">LOW</option>
-              </select>
-            </div>
-
-            {/* Action Filter */}
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 text-[11px]">Action:</span>
-              <select
-                value={actionFilter}
-                onChange={(e) => setActionFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 font-mono-code text-[11px]"
-              >
-                <option value="ALL">All Actions</option>
-                <option value="QUARANTINED">QUARANTINED</option>
-                <option value="BLOCKED">BLOCKED</option>
-                <option value="FLAGGED_REVIEW">FLAGGED_REVIEW</option>
-              </select>
-            </div>
-
-            {/* Node Filter */}
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 text-[11px]">Node:</span>
-              <select
-                value={clientFilter}
-                onChange={(e) => setClientFilter(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-700 font-mono-code text-[11px]"
-              >
-                {clientList.map((cid) => (
-                  <option key={cid} value={cid}>
-                    {cid === 'ALL' ? 'All Nodes' : `Node ${cid}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 transition-colors ml-auto"
-                type="button"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Reset</span>
-              </button>
-            )}
-          </div>
+          <select
+            value={actionFilter}
+            onChange={(e) => setActionFilter(e.target.value)}
+            className="px-3 py-1.5 text-xs font-mono-code rounded-md bg-slate-950 border border-slate-800 text-slate-300 focus:outline-none focus:border-brand-cyan"
+          >
+            <option value="ALL">All Actions</option>
+            <option value="QUARANTINED">Quarantined</option>
+            <option value="FLAGGED_REVIEW">Flagged Review</option>
+            <option value="BLOCKED">Blocked</option>
+          </select>
         </div>
       </div>
 
       {/* Incidents Table */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden">
+      <div className="glass-panel rounded-xl overflow-hidden border border-slate-800">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs divide-y divide-slate-200">
-            <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-mono-code text-slate-400 uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3">Ticket ID</th>
-                <th className="px-4 py-3">Node</th>
-                <th className="px-4 py-3">Round</th>
-                <th className="px-4 py-3">Threat Hypothesis</th>
-                <th className="px-4 py-3">Confidence</th>
-                <th className="px-4 py-3">Mitigation Action</th>
-                <th className="px-4 py-3">Trust Impact</th>
-                <th className="px-4 py-3">Target Class Impact</th>
-                <th className="px-4 py-3 text-right">Forensics</th>
+                <th className="py-3 px-4">Incident ID</th>
+                <th className="py-3 px-4">Node Identity</th>
+                <th className="py-3 px-4">Threat Hypothesis</th>
+                <th className="py-3 px-4 text-center">Confidence</th>
+                <th className="py-3 px-4 text-center">Trust Delta</th>
+                <th className="py-3 px-4 text-center">Blast Radius</th>
+                <th className="py-3 px-4 text-center">Action Taken</th>
+                <th className="py-3 px-4 text-right">Forensic Audit</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredIncidents.length > 0 ? (
-                filteredIncidents.map((incident) => {
-                  const delta = incident.trust_after - incident.trust_before;
-                  const isBackdoor = incident.threat_hypothesis === 'BACKDOOR';
+            <tbody className="divide-y divide-slate-800/60 font-mono-code">
+              {filteredIncidents.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-500 font-sans">
+                    No matching incidents found in active register.
+                  </td>
+                </tr>
+              ) : (
+                filteredIncidents.map((inc) => {
+                  const blast = inc.blast_radius;
+                  const delta = inc.trust_after - inc.trust_before;
+
                   return (
-                    <tr
-                      key={incident.incident_id}
-                      onClick={() => navigateToInvestigation(incident.incident_id)}
-                      className="hover:bg-slate-50 cursor-pointer transition-colors group"
-                    >
-                      <td className="px-4 py-3 font-mono-code font-bold text-slate-900 flex items-center gap-1.5">
-                        {isBackdoor ? (
-                          <Flame className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        )}
-                        <span>{incident.incident_id}</span>
-                      </td>
-                      <td className="px-4 py-3 font-mono-code font-bold">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedClientId(incident.client_id);
-                          }}
-                          className="text-slate-900 hover:underline hover:text-emerald-700"
-                        >
-                          {incident.client_id}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 font-mono-code text-slate-600">
-                        Round #{incident.round_id}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-800">
-                        {incident.threat_hypothesis}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`font-mono-code font-bold text-[11px] ${
-                            incident.confidence === 'HIGH'
-                              ? 'text-rose-700'
-                              : incident.confidence === 'MEDIUM'
-                              ? 'text-amber-700'
-                              : 'text-slate-600'
-                          }`}
-                        >
-                          {incident.confidence}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {getActionBadge(incident.action_taken)}
-                      </td>
-                      <td className="px-4 py-3 font-mono-code">
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-500">{incident.trust_before}%</span>
-                          <span className="text-slate-400">&rarr;</span>
-                          <span className="font-bold text-rose-600">{incident.trust_after}%</span>
-                          <span className="text-[10px] text-rose-600 font-bold ml-1">
-                            ({delta} pts)
-                          </span>
+                    <tr key={inc.incident_id} className="hover:bg-slate-900/40 transition-colors">
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-100">{inc.incident_id}</div>
+                        <div className="text-[10px] text-slate-500 truncate max-w-[130px]" title={inc.update_hash}>
+                          {inc.update_hash.slice(0, 10)}...
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">
-                        {incident.blast_radius?.impacted_target_class || 'General Performance'}
+
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-brand-cyan">{inc.client_id}</span>
+                        <div className="text-[10px] text-slate-500">Round #{inc.round_id}</div>
                       </td>
-                      <td className="px-4 py-3 text-right">
+
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800 text-[10px] font-bold">
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          {inc.threat_hypothesis}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className="text-emerald-400 font-bold">{inc.confidence}</span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1 text-rose-400 font-bold">
+                          <TrendingDown className="w-3 h-3" />
+                          <span>{delta} pts</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {inc.trust_before}% &rarr; {inc.trust_after}%
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        {blast ? (
+                          <div className="text-[10px]">
+                            <span className="text-rose-400 font-bold">ASR {blast.post_update_asr}%</span>
+                            <div className="text-slate-400 truncate max-w-[120px]">{blast.impacted_target_class}</div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">-</span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          inc.action_taken === 'QUARANTINED'
+                            ? 'bg-rose-950 text-rose-400 border-rose-800'
+                            : 'bg-amber-950 text-amber-400 border-amber-800'
+                        }`}>
+                          {inc.action_taken}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigateToInvestigation(incident.incident_id);
-                          }}
-                          className="inline-flex items-center gap-1 text-slate-900 font-semibold group-hover:underline text-[11px]"
-                          type="button"
+                          onClick={() => openInvestigation(inc.incident_id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-brand-cyan border border-brand-cyan/30 text-xs font-bold transition-all shadow-[0_0_10px_rgba(0,240,255,0.1)] font-sans"
                         >
-                          <Microscope className="w-3.5 h-3.5 text-emerald-600" />
+                          <Microscope className="w-3.5 h-3.5" />
                           <span>Audit</span>
-                          <ChevronRight className="w-3 h-3 text-slate-400 group-hover:text-slate-900" />
+                          <ArrowRight className="w-3 h-3" />
                         </button>
                       </td>
                     </tr>
                   );
                 })
-              ) : (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400 text-xs">
-                    No incident tickets found matching current query and filter criteria.
-                  </td>
-                </tr>
               )}
             </tbody>
           </table>

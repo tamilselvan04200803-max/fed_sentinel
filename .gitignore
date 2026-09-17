@@ -10,3 +10,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+*.db
+*.sqlite
+*.sqlite3
+debug.cjs
+test.cjs
